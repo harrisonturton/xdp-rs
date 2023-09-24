@@ -1,0 +1,10 @@
+[package]
+name = "xdp-rs"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libc = "0.2.148"
+xdp-sys = { path = "../xdp-sys" }
+thiserror = "1.0.48"
+argh = "0.1.12"
