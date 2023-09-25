@@ -23,12 +23,15 @@ pub struct Socket {
 impl Socket {
     #[must_use]
     pub fn create(domain: i32, typ: i32, protocol: i32) -> Result<Socket> {
-        unsafe {
-            match libc::socket(domain, typ, protocol) {
-                ret if ret < 0 => Err(Error::Socket(errno())),
-                fd => Ok(Socket { fd }),
-            }
+        let fd = unsafe {
+            libc::socket(domain, typ, protocol)
+        };
+
+        if fd == -1 {
+            return Err(Error::Socket(errno()));
         }
+
+        Ok(Socket { fd })
     }
 
     #[must_use]

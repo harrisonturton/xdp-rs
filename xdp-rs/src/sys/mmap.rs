@@ -9,78 +9,94 @@
 //! ```
 //!
 //! Automatically calls [libc::munmap] when the value is dropped.
-use libc::MAP_FAILED;
-
 use super::errno;
 use crate::{error::Error, Result};
+use libc::MAP_FAILED;
 use std::marker::PhantomData;
-
-/// Begin configuring a private mmap.
-#[must_use]
-pub fn private() -> MmapBuilder {
-    MmapBuilder::new(libc::MAP_PRIVATE)
-}
-
-/// Begin configuring a shared mmap.
-#[must_use]
-pub fn shared() -> MmapBuilder {
-    MmapBuilder::new(libc::MAP_SHARED)
-}
+use std::ptr::NonNull;
 
 /// Represents a region of mmapped memory. The lifetime refers to the region of
 /// memory. `munmap` will be called automatically when this value is dropped.
 #[derive(Debug)]
 pub struct MmapRegion<'a> {
-    addr: *const libc::c_void,
-    length: usize,
-    phantom: PhantomData<&'a [u8]>,
-}
-
-impl<'a> MmapRegion<'a> {
-    pub fn munmap(&mut self) -> Result<()> {
-        match unsafe { libc::munmap(self.addr as *mut _, self.length) } {
-            ret if ret < 0 => Err(Error::Munmap(errno())),
-            _ => Ok(()),
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.length
-    }
-
-    pub unsafe fn addr(&self) -> *const libc::c_void {
-        self.addr
-    }
+    pub addr: NonNull<u8>,
+    pub len: usize,
+    _marker: PhantomData<&'a u8>,
 }
 
 impl<'a> Drop for MmapRegion<'a> {
     fn drop(&mut self) {
-        self.munmap().expect("failed to munmap");
+        munmap(self).expect("failed to munmap");
     }
+}
+
+pub fn mmap<'a>(
+    addr: Option<NonNull<u8>>,
+    len: usize,
+    prot: i32,
+    flags: i32,
+    fd: i32,
+    offset: i64,
+) -> Result<MmapRegion<'a>> {
+    let ptr = addr.map(NonNull::as_ptr).unwrap_or(std::ptr::null_mut());
+    let ret = unsafe { libc::mmap(ptr as *mut _, len, prot, flags, fd, offset) };
+
+    if ret == MAP_FAILED {
+        return Err(Error::Mmap(errno()));
+    }
+
+    Ok(MmapRegion {
+        addr: NonNull::new(ret as *mut _).ok_or(Error::Efault("mmap returned null pointer"))?,
+        len,
+        _marker: PhantomData,
+    })
+}
+
+#[must_use]
+pub fn munmap<'a>(region: &MmapRegion<'a>) -> Result<()> {
+    let ret = unsafe { libc::munmap(region.addr.as_ptr() as *mut _, region.len) };
+
+    if ret == -1 {
+        return Err(Error::Munmap(errno()));
+    }
+
+    return Ok(());
+}
+
+/// Begin configuring a mmap.
+#[must_use]
+pub fn builder() -> MmapBuilder {
+    MmapBuilder::default()
 }
 
 /// Used to configure and create an instance of mmapped memory.
 #[derive(Default)]
 pub struct MmapBuilder {
-    length: usize,
+    len: usize,
     prot: i32,
     flags: i32,
     fd: Option<i32>,
     offset: i64,
+    visibility: Option<i32>,
+    addr: Option<NonNull<u8>>,
 }
 
 impl MmapBuilder {
     #[must_use]
-    pub(crate) fn new(visibility: i32) -> Self {
-        MmapBuilder {
-            flags: visibility,
-            ..Default::default()
-        }
+    pub fn length(mut self, len: usize) -> Self {
+        self.len = len;
+        self
     }
 
     #[must_use]
-    pub fn length(mut self, length: usize) -> Self {
-        self.length = length;
+    pub fn visibility<I: Into<i32>>(mut self, visibility: I) -> Self {
+        self.visibility = Some(visibility.into());
+        self
+    }
+
+    #[must_use]
+    pub fn addr(mut self, addr: Option<NonNull<u8>>) -> Self {
+        self.addr = addr;
         self
     }
 
@@ -112,32 +128,40 @@ impl MmapBuilder {
     pub fn build<'a>(self) -> Result<MmapRegion<'a>> {
         println!(
             "{:?} {:?} {:?} {:?} {:?}",
-            self.length,
+            self.len,
             self.prot,
             self.flags,
             self.fd.unwrap_or(-1),
             self.offset
         );
 
-        let buf = unsafe {
-            match libc::mmap(
-                std::ptr::null_mut(),
-                self.length,
-                self.prot,
-                self.flags,
-                self.fd.unwrap_or(-1),
-                self.offset as i64,
-            ) {
-                MAP_FAILED => Err(Error::Mmap(errno())),
-                buf => Ok(buf),
-            }
-        }?;
+        let visibility = self
+            .visibility
+            .ok_or(Error::Efault("must specify mmap visibility"))?;
 
-        Ok(MmapRegion {
-            addr: buf,
-            length: self.length,
-            phantom: PhantomData,
-        })
+        mmap(
+            self.addr,
+            self.len,
+            self.prot,
+            self.flags | visibility,
+            self.fd.unwrap_or(-1),
+            self.offset as i64,
+        )
+    }
+}
+
+#[derive(Hash, Debug, Copy, Clone, Eq, PartialEq)]
+pub enum Visibility {
+    Private,
+    Shared,
+}
+
+impl From<Visibility> for i32 {
+    fn from(value: Visibility) -> Self {
+        match value {
+            Visibility::Private => libc::MAP_PRIVATE,
+            Visibility::Shared => libc::MAP_SHARED,
+        }
     }
 }
 

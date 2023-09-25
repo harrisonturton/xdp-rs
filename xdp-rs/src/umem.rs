@@ -4,7 +4,7 @@ use libc::SOL_XDP;
 
 use crate::constants;
 use crate::error::Error;
-use crate::sys::mmap::{Behavior, Protection};
+use crate::sys::mmap::{Behavior, Protection, Visibility};
 use crate::sys::socket::XdpMmapOffsets;
 use crate::sys::{self, mmap::MmapRegion, socket::Socket};
 use crate::Result;
@@ -28,11 +28,11 @@ pub struct UmemConfig {
 
 impl<'a> Umem<'a> {
     pub fn create(mut socket: Socket, buffer: MmapRegion<'a>) -> Result<Umem<'a>> {
-        if buffer.len() == 0 {
+        if buffer.len == 0 {
             return Err(Error::Efault("buffer has no length"));
         }
 
-        if !sys::is_page_aligned(unsafe { buffer.addr() as *const _ }) {
+        if !sys::is_page_aligned(buffer.addr.as_ptr() as *const _) {
             return Err(Error::Efault("buffer is not page aligned"));
         }
 
@@ -48,8 +48,8 @@ impl<'a> Umem<'a> {
             SOL_XDP,
             xdp_sys::XDP_UMEM_REG,
             &xdp_sys::xdp_umem_reg {
-                addr: unsafe { buffer.addr() } as u64,
-                len: buffer.len() as u64,
+                addr: buffer.addr.as_ptr() as u64,
+                len: buffer.len as u64,
                 chunk_size: config.frame_size,
                 headroom: config.frame_headroom,
                 flags: 0,
@@ -70,8 +70,9 @@ impl<'a> Umem<'a> {
 
         let fill_ring_len =
             offsets.fr.desc + config.fill_size as u64 * std::mem::size_of::<u64>() as u64;
-        let fill_ring_mmap = sys::mmap::shared()
+        let fill_ring_mmap = sys::mmap::builder()
             .fd(socket.fd)
+            .visibility(Visibility::Shared)
             .length(fill_ring_len as usize)
             .offset(xdp_sys::XDP_UMEM_PGOFF_FILL_RING as i64)
             .behaviour(Behavior::PopulatePageTables)
@@ -80,38 +81,35 @@ impl<'a> Umem<'a> {
 
         let comp_ring_len =
             offsets.cr.desc + config.comp_size as u64 * std::mem::size_of::<u64>() as u64;
-        let comp_ring_mmap = sys::mmap::shared()
+        let comp_ring_mmap = sys::mmap::builder()
             .fd(socket.fd)
+            .visibility(Visibility::Shared)
             .length(comp_ring_len as usize)
             .offset(xdp_sys::XDP_UMEM_PGOFF_COMPLETION_RING as i64)
             .behaviour(Behavior::PopulatePageTables)
             .protection(Protection::Read | Protection::Write)
             .build()?;
 
-        let producer = unsafe {
-            RingDriver {
-                cached_prod: 0,
-                cached_cons: config.fill_size,
-                mask: config.fill_size - 1,
-                size: config.fill_size,
-                producer: (fill_ring_mmap.addr() as u64 + offsets.fr.producer) as *mut _,
-                consumer: (fill_ring_mmap.addr() as u64 + offsets.fr.consumer) as *mut _,
-                ring: (fill_ring_mmap.addr() as u64 + offsets.fr.desc) as *mut _,
-                umem_ref: PhantomData,
-            }
+        let producer = RingDriver {
+            cached_prod: 0,
+            cached_cons: config.fill_size,
+            mask: config.fill_size - 1,
+            size: config.fill_size,
+            producer: (fill_ring_mmap.addr.as_ptr() as u64 + offsets.fr.producer) as *mut _,
+            consumer: (fill_ring_mmap.addr.as_ptr() as u64 + offsets.fr.consumer) as *mut _,
+            ring: (fill_ring_mmap.addr.as_ptr() as u64 + offsets.fr.desc) as *mut _,
+            umem_ref: PhantomData,
         };
 
-        let consumer = unsafe {
-            RingDriver {
-                cached_prod: 0,
-                cached_cons: config.fill_size,
-                mask: config.comp_size - 1,
-                size: config.comp_size,
-                producer: (comp_ring_mmap.addr() as u64 + offsets.cr.producer) as *mut _,
-                consumer: (comp_ring_mmap.addr() as u64 + offsets.cr.consumer) as *mut _,
-                ring: (comp_ring_mmap.addr() as u64 + offsets.cr.desc) as *mut _,
-                umem_ref: PhantomData,
-            }
+        let consumer = RingDriver {
+            cached_prod: 0,
+            cached_cons: config.fill_size,
+            mask: config.comp_size - 1,
+            size: config.comp_size,
+            producer: (comp_ring_mmap.addr.as_ptr() as u64 + offsets.cr.producer) as *mut _,
+            consumer: (comp_ring_mmap.addr.as_ptr() as u64 + offsets.cr.consumer) as *mut _,
+            ring: (comp_ring_mmap.addr.as_ptr() as u64 + offsets.cr.desc) as *mut _,
+            umem_ref: PhantomData,
         };
 
         Ok(Umem {

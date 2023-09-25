@@ -1,4 +1,4 @@
-use crate::sys::mmap::{Behavior, Protection};
+use crate::sys::mmap::{Behavior, Protection, Visibility};
 use crate::{constants, sys, umem, Result};
 
 /// list for packets with xdp
@@ -16,7 +16,8 @@ pub fn exec() -> Result<()> {
     let _args = argh::from_env::<Args>();
 
     println!("Attempting to mmap");
-    let packet_buf = sys::mmap::private()
+    let packet_buf = sys::mmap::builder()
+        .visibility(Visibility::Private)
         .length(constants::PACKET_BUFFER_SIZE)
         .behaviour(Behavior::Anonymous)
         .protection(Protection::Read | Protection::Write | Protection::Exec)
@@ -24,11 +25,12 @@ pub fn exec() -> Result<()> {
     println!("Successfully mmapped");
 
     println!("Creating socket");
-    let sock = sys::socket::create(libc::AF_XDP, libc::SOCK_RAW, 0)?;
+    let sock =
+        sys::socket::create(libc::AF_XDP, libc::SOCK_RAW, 0)?;
     println!("Successfully created socket");
 
     println!("Creating umem");
-    let umem = umem::Umem::create(sock, packet_buf)?;
+    let umem = umem::Umem::create(sock, packet_buf).expect("could not create umem");
     println!("Created umem: {:?}", umem);
 
     // let sock = sys::socket::create(AF_XDP, SOCK_RAW, 0)?;

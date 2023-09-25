@@ -16,10 +16,18 @@ pub fn main() -> Result<()> {
             println!("error: {}", sys::strerror(code));
             return Ok(());
         }
-        Err(error::Error::SetSockOpt(code)) => {
-            println!("error: {}", sys::strerror(code));
+        Err(error::Error::Socket(code)) => {
+            println!("socket error: {}", sys::strerror(code));
             return Ok(());
         }
-        _ => Ok(()),
+        Err(error::Error::SetSockOpt(code)) => {
+            println!("setsockopt error: {}", sys::strerror(code));
+            return Ok(());
+        }
+        Err(error::Error::GetSockOpt(code)) => {
+            println!("getsockopt error: {}", sys::strerror(code));
+            return Ok(());
+        }
+        _ => Ok(())
     }
 }
