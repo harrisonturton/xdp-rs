@@ -1,6 +1,10 @@
 //! This module contains types-afe and memory-safe wrappers over linux syscalls.
 //! Unsafe blocks should be confined to this namespace, and care should be taken
 //! to make sure that all the exposed interfaces are memory safe.
+
+use std::ffi::CString;
+
+use crate::{error::Error, Result};
 pub mod mmap;
 pub mod socket;
 
@@ -20,7 +24,7 @@ pub(crate) fn errno() -> i32 {
 }
 
 #[must_use]
-pub(crate) fn is_page_aligned(mem: *const libc::c_void) -> bool {
+pub(crate) fn is_page_aligned<T>(mem: *const T) -> bool {
     mem as u64 & (libc::_SC_PAGE_SIZE as u64 - 1) == 0
 }
 
@@ -29,4 +33,18 @@ pub fn strerror(code: i32) -> String {
     let msg_ptr = unsafe { libc::strerror(code) };
     let msg_cstr = unsafe { std::ffi::CStr::from_ptr(msg_ptr) };
     msg_cstr.to_string_lossy().to_string()
+}
+
+#[must_use]
+pub fn if_nametoindex(name: String) -> Result<u32> {
+    let ret = unsafe {
+        let cstr = CString::new(name).map_err(|_| Error::Efault("bad ifindex name"))?;
+        libc::if_nametoindex(cstr.as_ptr())
+    };
+
+    if ret == 0 {
+        Err(Error::IfNameToIndex(errno()))
+    } else {
+        Ok(ret)
+    }
 }

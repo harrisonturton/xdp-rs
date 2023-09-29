@@ -12,32 +12,30 @@
 use super::errno;
 use crate::{error::Error, Result};
 use libc::MAP_FAILED;
-use std::marker::PhantomData;
 use std::ptr::NonNull;
 
 /// Represents a region of mmapped memory. The lifetime refers to the region of
 /// memory. `munmap` will be called automatically when this value is dropped.
 #[derive(Debug)]
-pub struct MmapRegion<'a> {
+pub struct MmapRegion {
     pub addr: NonNull<u8>,
     pub len: usize,
-    _marker: PhantomData<&'a u8>,
 }
 
-impl<'a> Drop for MmapRegion<'a> {
+impl Drop for MmapRegion {
     fn drop(&mut self) {
         munmap(self).expect("failed to munmap");
     }
 }
 
-pub fn mmap<'a>(
+pub fn mmap(
     addr: Option<NonNull<u8>>,
     len: usize,
     prot: i32,
     flags: i32,
     fd: i32,
     offset: i64,
-) -> Result<MmapRegion<'a>> {
+) -> Result<MmapRegion> {
     let ptr = addr.map(NonNull::as_ptr).unwrap_or(std::ptr::null_mut());
     let ret = unsafe { libc::mmap(ptr as *mut _, len, prot, flags, fd, offset) };
 
@@ -48,12 +46,11 @@ pub fn mmap<'a>(
     Ok(MmapRegion {
         addr: NonNull::new(ret as *mut _).ok_or(Error::Efault("mmap returned null pointer"))?,
         len,
-        _marker: PhantomData,
     })
 }
 
 #[must_use]
-pub fn munmap<'a>(region: &MmapRegion<'a>) -> Result<()> {
+pub fn munmap(region: &MmapRegion) -> Result<()> {
     let ret = unsafe { libc::munmap(region.addr.as_ptr() as *mut _, region.len) };
 
     if ret == -1 {
@@ -125,16 +122,7 @@ impl MmapBuilder {
     }
 
     #[must_use]
-    pub fn build<'a>(self) -> Result<MmapRegion<'a>> {
-        println!(
-            "{:?} {:?} {:?} {:?} {:?}",
-            self.len,
-            self.prot,
-            self.flags,
-            self.fd.unwrap_or(-1),
-            self.offset
-        );
-
+    pub fn build(self) -> Result<MmapRegion> {
         let visibility = self
             .visibility
             .ok_or(Error::Efault("must specify mmap visibility"))?;

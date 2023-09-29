@@ -4,6 +4,7 @@
 mod cli;
 mod constants;
 mod error;
+mod ring;
 mod sys;
 mod umem;
 
@@ -28,6 +29,14 @@ pub fn main() -> Result<()> {
             println!("getsockopt error: {}", sys::strerror(code));
             return Ok(());
         }
-        _ => Ok(())
+        Err(error::Error::Bind(code)) => {
+            println!("bind error: {}", sys::strerror(code));
+            return Ok(());
+        }
+        Err(error::Error::IfNameToIndex(code)) => {
+            println!("if_nametoindex error: {}", sys::strerror(code));
+            return Ok(());
+        }
+        _ => Ok(()),
     }
 }

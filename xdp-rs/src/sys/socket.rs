@@ -4,6 +4,8 @@
 //! let sock = socket::create(AF_XDP, SOCK_RAW, 0)?;
 //! sock.set_opt(SOL_XDP, XDP_UMEM_REG, &xdp_umem_reg { ... })?;
 //! ```
+use std::mem::size_of;
+
 use crate::error::Error;
 use crate::sys::errno;
 use crate::Result;
@@ -23,9 +25,7 @@ pub struct Socket {
 impl Socket {
     #[must_use]
     pub fn create(domain: i32, typ: i32, protocol: i32) -> Result<Socket> {
-        let fd = unsafe {
-            libc::socket(domain, typ, protocol)
-        };
+        let fd = unsafe { libc::socket(domain, typ, protocol) };
 
         if fd == -1 {
             return Err(Error::Socket(errno()));
@@ -41,8 +41,8 @@ impl Socket {
                 self.fd as i32,
                 level,
                 opt_name as i32,
-                super::ptr(opt_value),
-                std::mem::size_of::<T>() as u32,
+                opt_value as *const T as *const _,
+                size_of::<T>() as u32,
             ) {
                 ret if ret < 0 => Err(Error::SetSockOpt(super::errno())),
                 _ => Ok(()),
@@ -54,6 +54,23 @@ impl Socket {
     #[must_use]
     pub fn get_opt<O: GetSockOpt>(&mut self) -> Result<O::Value> {
         O::try_get(self)
+    }
+
+    #[must_use]
+    pub fn bind<T>(&self, sockaddr: &T) -> Result<()> {
+        let ret = unsafe {
+            libc::bind(
+                self.fd,
+                sockaddr as *const T as *const _,
+                size_of::<T>() as u32,
+            )
+        };
+
+        if ret == -1 {
+            return Err(Error::Bind(errno()));
+        }
+
+        return Ok(());
     }
 }
 
@@ -75,7 +92,7 @@ impl GetSockOpt for XdpMmapOffsets {
         unsafe {
             getsockopt(
                 socket.fd,
-                libc::SOL_RAW,
+                libc::SOL_XDP,
                 xdp_sys::XDP_MMAP_OFFSETS as i32,
                 buf.as_mut_ptr(),
                 &mut len,

@@ -2,6 +2,10 @@
 pub enum Error {
     #[error("failed to create socket: {0}")]
     Socket(i32),
+    #[error("failed to bind: {0}")]
+    Bind(i32),
+    #[error("failed to if_nametoindex: {0}")]
+    IfNameToIndex(i32),
     #[error("failed to mmap: {0}")]
     Mmap(i32),
     #[error("failed to munmap: {0}")]
