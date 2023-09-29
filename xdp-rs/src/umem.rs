@@ -37,17 +37,16 @@ impl Umem {
             return Err(Error::Efault("buffer is not page aligned"));
         }
 
-        config.socket.set_opt::<xdp_sys::xdp_umem_reg>(
-            SOL_XDP,
-            xdp_sys::XDP_UMEM_REG,
-            &xdp_sys::xdp_umem_reg {
-                addr: frame_buffer.addr.as_ptr() as u64,
-                len: frame_buffer.len as u64,
-                chunk_size: config.frame_size,
-                headroom: config.frame_headroom,
-                flags: 0,
-            },
-        )?;
+        let reg = xdp_sys::xdp_umem_reg {
+            addr: frame_buffer.addr.as_ptr() as u64,
+            len: frame_buffer.len as u64,
+            chunk_size: config.frame_size,
+            headroom: config.frame_headroom,
+            flags: 0,
+        };
+        config
+            .socket
+            .set_opt::<xdp_sys::xdp_umem_reg>(SOL_XDP, xdp_sys::XDP_UMEM_REG, &reg)?;
 
         Ok(Umem {
             frame_buffer,

@@ -10,6 +10,44 @@ pub struct RingBuffer<T> {
     consumer: usize,
 }
 
+pub struct RingBuffer2<T> {
+    pub len: usize,
+    pub producer: *mut u32,
+    pub consumer: *mut u32,
+    pub descs: *mut T,
+}
+
+impl<T> RingBuffer2<T> {
+    pub fn new(
+        len: usize,
+        producer: *mut u32,
+        consumer: *mut u32,
+        descs: *mut T,
+    ) -> RingBuffer2<T> {
+        RingBuffer2 {
+            len,
+            producer,
+            consumer,
+            descs,
+        }
+    }
+
+    #[inline]
+    pub fn producer(&self) -> *mut u32 {
+        unsafe { self.producer }
+    }
+
+    #[inline]
+    pub fn consumer(&self) -> *mut u32 {
+        unsafe { self.consumer }
+    }
+
+    #[inline]
+    pub fn desc(&self, index: isize) -> *mut T {
+        unsafe { self.descs.offset(index) }
+    }
+}
+
 impl<T> RingBuffer<T> {
     /// Creates a new RingBuffer from an allocated region of memory.
     ///
@@ -34,6 +72,8 @@ impl<T> RingBuffer<T> {
 
     #[inline]
     pub fn enqueue(&mut self, elem: T) -> bool {
+        println!("ENQUEUE CALLED");
+
         if self.len == self.cap {
             return false;
         }
@@ -157,7 +197,6 @@ mod tests {
         assert_eq!(1, buffer.consumer);
         assert_eq!(1, buffer.producer);
     }
-
 
     // Do not use outside of a test context
     fn new_test_buffer<T>(cap: usize) -> RingBuffer<T> {

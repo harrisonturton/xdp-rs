@@ -22,11 +22,11 @@ pub struct MmapRegion<T> {
     pub len: usize,
 }
 
-impl<T> Drop for MmapRegion<T> {
-    fn drop(&mut self) {
-        munmap(self).expect("failed to munmap");
-    }
-}
+// impl<T> Drop for MmapRegion<T> {
+//     fn drop(&mut self) {
+//         munmap(self).expect("failed to munmap");
+//     }
+// }
 
 pub fn mmap<T>(
     addr: Option<NonNull<T>>,
@@ -51,6 +51,8 @@ pub fn mmap<T>(
 
 #[must_use]
 pub fn munmap<T>(region: &MmapRegion<T>) -> Result<()> {
+    println!("UNMAPPING");
+
     let ret = unsafe { libc::munmap(region.addr.as_ptr() as *mut _, region.len) };
 
     if ret == -1 {
@@ -70,7 +72,7 @@ pub fn builder<T>() -> MmapBuilder<T> {
         fd: None,
         offset: 0,
         visibility: None,
-        addr: None
+        addr: None,
     }
 }
 
