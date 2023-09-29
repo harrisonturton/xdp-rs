@@ -1,32 +1,16 @@
-//! Safe wrapper for [libc::mmap].
-//!
-//! ```
-//! let mem = mmap::private()
-//!     .length(100)
-//!     .behaviour(Behavior::Anonymous)
-//!     .protection(Protection::Read | Protection::Write)
-//!     .build()?;
-//! ```
-//!
-//! Automatically calls [libc::munmap] when the value is dropped.
 use super::errno;
-use crate::{error::Error, Result};
+use crate::error::Error;
+use crate::Result;
 use libc::MAP_FAILED;
+use std::ops::BitOr;
 use std::ptr::NonNull;
 
-/// Represents a region of mmapped memory. The lifetime refers to the region of
-/// memory. `munmap` will be called automatically when this value is dropped.
+/// Represents a region of mmapped memory.
 #[derive(Debug)]
 pub struct MmapRegion<T> {
     pub addr: NonNull<T>,
     pub len: usize,
 }
-
-// impl<T> Drop for MmapRegion<T> {
-//     fn drop(&mut self) {
-//         munmap(self).expect("failed to munmap");
-//     }
-// }
 
 pub fn mmap<T>(
     addr: Option<NonNull<T>>,
@@ -51,8 +35,6 @@ pub fn mmap<T>(
 
 #[must_use]
 pub fn munmap<T>(region: &MmapRegion<T>) -> Result<()> {
-    println!("UNMAPPING");
-
     let ret = unsafe { libc::munmap(region.addr.as_ptr() as *mut _, region.len) };
 
     if ret == -1 {
@@ -188,19 +170,19 @@ pub enum Protection {
     Exec,
 }
 
-impl std::ops::BitOr<Behavior> for Behavior {
+impl BitOr<Behavior> for Behavior {
     type Output = i32;
 
     fn bitor(self, rhs: Self) -> Self::Output {
-        self as i32 | rhs as i32
+        i32::from(self) | i32::from(rhs)
     }
 }
 
-impl std::ops::BitOr<Behavior> for i32 {
+impl BitOr<Behavior> for i32 {
     type Output = i32;
 
     fn bitor(self, rhs: Behavior) -> Self::Output {
-        self as i32 | rhs as i32
+        i32::from(self) | i32::from(rhs)
     }
 }
 
@@ -214,18 +196,33 @@ impl From<Protection> for i32 {
     }
 }
 
-impl std::ops::BitOr<Protection> for Protection {
+impl BitOr<Protection> for Protection {
     type Output = i32;
 
     fn bitor(self, rhs: Self) -> Self::Output {
-        self as i32 | rhs as i32
+        i32::from(self) | i32::from(rhs)
     }
 }
 
-impl std::ops::BitOr<Protection> for i32 {
+impl BitOr<Protection> for i32 {
     type Output = i32;
 
     fn bitor(self, rhs: Protection) -> Self::Output {
-        self as i32 | rhs as i32
+        i32::from(self) | i32::from(rhs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_or_protection_gives_expected_bitfield() {
+        assert_eq!(0b11, Protection::Read | Protection::Write);
+    }
+
+    #[test]
+    fn test_or_behavior_gives_expected_bitfield() {
+        assert_eq!(0x8020, Behavior::Anonymous | Behavior::PopulatePageTables);
     }
 }
