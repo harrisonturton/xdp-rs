@@ -6,7 +6,7 @@ use libc::SOL_XDP;
 
 #[derive(Debug)]
 pub struct Umem {
-    pub frame_buffer: MmapRegion,
+    pub frame_buffer: MmapRegion<u8>,
     pub frame_count: u32,
     pub frame_size: u32,
     pub frame_headroom: u32,

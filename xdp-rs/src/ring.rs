@@ -1,182 +1,171 @@
-use libc::SOL_XDP;
-
-use crate::error::Error;
-use crate::sys::mmap::{self, Behavior, Protection, Visibility};
-use crate::sys::socket::XdpMmapOffsets;
-use crate::sys::{mmap::MmapRegion, socket::Socket};
-use crate::Result;
-use std::marker::PhantomData;
 use std::mem::size_of;
-use std::sync::atomic;
+use std::ptr::{self, NonNull};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct RingBuffer<T> {
-    pub data: MmapRegion,
-    pub size: u32,
-    pub producer: *mut T,
-    pub consumer: *mut T,
-    pub _marker: PhantomData<T>,
+    ptr: NonNull<T>,
+    len: usize,
+    cap: usize,
+    producer: usize,
+    consumer: usize,
 }
 
-#[derive(Debug)]
-pub struct RingBufferConfig<'a> {
-    pub socket: &'a mut Socket,
-    // Number of descriptors in the buffer
-    pub size: u32,
-}
-
-impl RingBuffer<u64> {
-    pub fn enqueue(&mut self, item: u64) -> Result<()> {
-        let free_entries = self.size - unsafe { (*self.producer) - (*self.consumer) } as u32;
-        if free_entries == 0 {
-            return Err(Error::Efault("queue is already full"));
+impl<T> RingBuffer<T> {
+    /// Creates a new RingBuffer from an allocated region of memory.
+    ///
+    /// You probably don't want to use this constructor; there are safer
+    /// alternatives.
+    ///
+    /// `buffer` is a pointer to the allocated region memory, and `cap` is the
+    /// number of `T` instances that fit within this buffer. These values must
+    /// be set correctly; bad things will happen if this is not true. For this
+    /// reason, this constructor is marked as unsafe.
+    #[must_use]
+    pub unsafe fn new(buffer: NonNull<T>, cap: usize) -> RingBuffer<T> {
+        assert!(size_of::<T>() != 0, "Cannot handle zero-sized types");
+        RingBuffer {
+            ptr: buffer,
+            producer: 0,
+            consumer: 0,
+            len: 0,
+            cap,
         }
-
-        // TODO: Why do we AND with self.size - 1?
-        let offset = unsafe { *self.producer } & (self.size - 1) as u64;
-        let item_ptr = self.data.addr.as_ptr().wrapping_add(offset as usize) as *mut _;
-        unsafe { std::ptr::write(item_ptr, item) };
-
-        // Write barrier
-        atomic::fence(atomic::Ordering::Release);
-
-        self.producer = self.producer.wrapping_add(1);
-
-        Ok(())
     }
 
-    pub fn dequeue(&mut self) -> Option<u64> {
-        let entries = unsafe { *self.producer - *self.consumer };
-        if entries == 0 {
+    #[inline]
+    pub fn enqueue(&mut self, elem: T) -> bool {
+        if self.len == self.cap {
+            return false;
+        }
+
+        unsafe {
+            let producer = self.ptr.as_ptr().add(self.producer);
+            ptr::write(producer, elem);
+        }
+
+        self.producer = (self.producer + 1) % self.cap;
+        self.len += 1;
+        true
+    }
+
+    #[inline]
+    pub fn dequeue(&mut self) -> Option<T> {
+        if self.len == 0 {
             return None;
         }
 
-        let offset = unsafe { *self.consumer } & (self.size - 1) as u64;
-        let item_ptr = self.data.addr.as_ptr().wrapping_add(offset as usize) as *mut _;
-        let item = unsafe { std::ptr::read::<u64>(item_ptr) };
+        let item = unsafe {
+            let consumer = self.ptr.as_ptr().add(self.consumer);
+            ptr::read(consumer)
+        };
 
-        // Read barrier
-        atomic::fence(atomic::Ordering::Acquire);
-
-        self.consumer = self.consumer.wrapping_add(1);
+        self.consumer = (self.consumer + 1) % self.cap;
+        self.len -= 1;
         Some(item)
     }
 
-    pub fn create_fill_ring<'a>(config: RingBufferConfig<'a>) -> Result<RingBuffer<u64>> {
-        config
-            .socket
-            .set_opt(SOL_XDP, xdp_sys::XDP_UMEM_FILL_RING, &config.size)?;
-
-        let offsets = config.socket.get_opt::<XdpMmapOffsets>()?;
-        let len = offsets.fr.desc + config.size as u64 * size_of::<u64>() as u64;
-        let fill_ring_map = mmap::builder()
-            .fd(config.socket.fd)
-            .visibility(Visibility::Shared)
-            .length(len as usize)
-            .offset(xdp_sys::XDP_UMEM_PGOFF_FILL_RING as i64)
-            .behaviour(Behavior::PopulatePageTables)
-            .protection(Protection::Read | Protection::Write)
-            .build()?;
-
-        let producer = fill_ring_map.addr.as_ptr() as u64 + offsets.fr.producer;
-        let consumer = fill_ring_map.addr.as_ptr() as u64 + offsets.fr.consumer;
-
-        Ok(RingBuffer {
-            data: fill_ring_map,
-            size: config.size,
-            producer: producer as *mut u64,
-            consumer: consumer as *mut u64,
-            _marker: PhantomData,
-        })
+    #[inline]
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.len
     }
 
-    pub fn create_completion_ring<'a>(config: RingBufferConfig<'a>) -> Result<RingBuffer<u64>> {
-        config
-            .socket
-            .set_opt(SOL_XDP, xdp_sys::XDP_UMEM_COMPLETION_RING, &config.size)?;
-
-        let offsets = config.socket.get_opt::<XdpMmapOffsets>()?;
-        let len = offsets.cr.desc + config.size as u64 * size_of::<u64>() as u64;
-        let comp_ring_map = mmap::builder()
-            .fd(config.socket.fd)
-            .visibility(Visibility::Shared)
-            .length(len as usize)
-            .offset(xdp_sys::XDP_UMEM_PGOFF_COMPLETION_RING as i64)
-            .behaviour(Behavior::PopulatePageTables)
-            .protection(Protection::Read | Protection::Write)
-            .build()?;
-
-        let producer = comp_ring_map.addr.as_ptr() as u64 + offsets.cr.producer;
-        let consumer = comp_ring_map.addr.as_ptr() as u64 + offsets.cr.consumer;
-
-        Ok(RingBuffer {
-            data: comp_ring_map,
-            size: config.size,
-            producer: producer as *mut _,
-            consumer: consumer as *mut _,
-            _marker: PhantomData,
-        })
+    #[inline]
+    #[must_use]
+    pub fn capacity(&self) -> usize {
+        self.cap
     }
 }
 
-impl RingBuffer<xdp_sys::xdp_desc> {
-    pub fn create_rx_ring<'a>(
-        config: RingBufferConfig<'a>,
-    ) -> Result<RingBuffer<xdp_sys::xdp_desc>> {
-        config
-            .socket
-            .set_opt(SOL_XDP, xdp_sys::XDP_RX_RING, &config.size)?;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::alloc::{alloc, Layout};
 
-        let offsets = config.socket.get_opt::<XdpMmapOffsets>()?;
-        let len = offsets.rx.desc + config.size as u64 * size_of::<xdp_sys::xdp_desc>() as u64;
-        let rx_ring_map = mmap::builder()
-            .fd(config.socket.fd)
-            .visibility(Visibility::Shared)
-            .length(len as usize)
-            .offset(xdp_sys::XDP_PGOFF_RX_RING as i64)
-            .behaviour(Behavior::PopulatePageTables)
-            .protection(Protection::Read | Protection::Write)
-            .build()?;
+    #[test]
+    fn test_enqueue_within_capacity() {
+        let mut buffer = new_test_buffer::<u64>(10);
 
-        let producer = rx_ring_map.addr.as_ptr() as u64 + offsets.rx.producer;
-        let consumer = rx_ring_map.addr.as_ptr() as u64 + offsets.rx.consumer;
+        let ret = buffer.enqueue(1);
 
-        Ok(RingBuffer {
-            data: rx_ring_map,
-            size: config.size,
-            producer: producer as *mut _,
-            consumer: consumer as *mut _,
-            _marker: PhantomData,
-        })
+        assert_eq!(true, ret);
+        assert_eq!(1, buffer.len());
+        assert_eq!(10, buffer.capacity());
+        assert_eq!(0, buffer.consumer);
+        assert_eq!(1, buffer.producer);
     }
 
-    pub fn create_tx_ring<'a>(
-        config: RingBufferConfig<'a>,
-    ) -> Result<RingBuffer<xdp_sys::xdp_desc>> {
-        config
-            .socket
-            .set_opt(SOL_XDP, xdp_sys::XDP_TX_RING, &config.size)?;
+    #[test]
+    fn test_enqueue_then_dequeue_within_capacity() {
+        let mut buffer = new_test_buffer::<u64>(10);
+        buffer.enqueue(1);
 
-        let offsets = config.socket.get_opt::<XdpMmapOffsets>()?;
-        let len = offsets.tx.desc + config.size as u64 * size_of::<xdp_sys::xdp_desc>() as u64;
-        let tx_ring_map = mmap::builder()
-            .fd(config.socket.fd)
-            .visibility(Visibility::Shared)
-            .length(len as usize)
-            .offset(xdp_sys::XDP_PGOFF_TX_RING as i64)
-            .behaviour(Behavior::PopulatePageTables)
-            .protection(Protection::Read | Protection::Write)
-            .build()?;
+        let ret = buffer.dequeue();
 
-        let producer = tx_ring_map.addr.as_ptr() as u64 + offsets.tx.producer;
-        let consumer = tx_ring_map.addr.as_ptr() as u64 + offsets.tx.consumer;
+        assert_eq!(Some(1), ret);
+        assert_eq!(0, buffer.len());
+        assert_eq!(10, buffer.capacity());
+        assert_eq!(1, buffer.consumer);
+        assert_eq!(1, buffer.producer);
+    }
 
-        Ok(RingBuffer {
-            data: tx_ring_map,
-            size: config.size,
-            producer: producer as *mut _,
-            consumer: consumer as *mut _,
-            _marker: PhantomData,
-        })
+    #[test]
+    fn test_enqueue_when_full() {
+        let mut buffer = new_test_buffer::<u64>(2);
+        buffer.enqueue(1);
+        buffer.enqueue(2);
+
+        let ret = buffer.enqueue(2);
+
+        assert_eq!(false, ret);
+        assert_eq!(2, buffer.len());
+        assert_eq!(2, buffer.capacity());
+        assert_eq!(0, buffer.consumer);
+        assert_eq!(0, buffer.producer);
+    }
+
+    #[test]
+    fn test_enqueue_when_producer_rotates_past_end_of_buffer() {
+        let mut buffer = new_test_buffer::<u64>(2);
+        buffer.enqueue(1);
+        buffer.enqueue(2);
+        buffer.dequeue();
+
+        let ret = buffer.enqueue(3);
+
+        assert_eq!(true, ret);
+        assert_eq!(2, buffer.len());
+        assert_eq!(2, buffer.capacity());
+        assert_eq!(1, buffer.consumer);
+        assert_eq!(1, buffer.producer);
+    }
+
+    #[test]
+    fn test_dequeue_when_consumer_rotates_past_end_of_buffer() {
+        let mut buffer = new_test_buffer::<u64>(2);
+        buffer.enqueue(1);
+        buffer.enqueue(2);
+        buffer.dequeue();
+        buffer.enqueue(3);
+        buffer.dequeue();
+
+        let ret = buffer.dequeue();
+
+        assert_eq!(Some(3), ret);
+        assert_eq!(0, buffer.len());
+        assert_eq!(2, buffer.capacity());
+        assert_eq!(1, buffer.consumer);
+        assert_eq!(1, buffer.producer);
+    }
+
+
+    // Do not use outside of a test context
+    fn new_test_buffer<T>(cap: usize) -> RingBuffer<T> {
+        unsafe {
+            let layout = Layout::array::<T>(cap).expect("invalid memory layout");
+            let ptr = alloc(layout).cast();
+            let buffer = NonNull::new(ptr).expect("allocated buffer cannot be null");
+            RingBuffer::new(buffer, cap)
+        }
     }
 }

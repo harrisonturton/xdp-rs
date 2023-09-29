@@ -1,4 +1,7 @@
-use crate::ring::{RingBuffer, RingBufferConfig};
+use std::mem::size_of;
+use crate::ring::RingBuffer;
+use crate::sys::mmap::{self, Visibility, Behavior, Protection};
+use crate::sys::socket::{Socket, XdpMmapOffsets};
 use crate::umem::{Umem, UmemConfig};
 use crate::{constants, sys, Result};
 
@@ -26,20 +29,9 @@ pub fn exec() -> Result<()> {
         frame_headroom: constants::DEFAULT_FRAME_HEADROOM as u32,
     })?;
 
-    let mut fill_queue = RingBuffer::create_fill_ring(RingBufferConfig {
-        socket: &mut socket,
-        size: constants::DEFAULT_PROD_NUM_DESCS,
-    })?;
-
-    let _comp_queue = RingBuffer::create_completion_ring(RingBufferConfig {
-        socket: &mut socket,
-        size: constants::DEFAULT_CONS_NUM_DESCS,
-    })?;
-
-    let _rx_queue = RingBuffer::create_rx_ring(RingBufferConfig {
-        socket: &mut socket,
-        size: constants::DEFAULT_CONS_NUM_DESCS,
-    })?;
+    let mut fill_queue = new_fill_ring(&mut socket, constants::DEFAULT_PROD_NUM_DESCS as usize)?;
+    let mut _comp_queue = new_completion_ring(&mut socket, constants::DEFAULT_CONS_NUM_DESCS as usize)?;
+    let mut _rx_queue = new_rx_ring(&mut socket, constants::DEFAULT_CONS_NUM_DESCS as usize)?;
 
     let ifindex = sys::if_nametoindex(ifname)?;
 
@@ -51,9 +43,13 @@ pub fn exec() -> Result<()> {
         sxdp_shared_umem_fd: 0,
     })?;
 
+    println!("Bound successfully");
+
     // Need to add items to the fill queue so that packets can start being received
-    for i in 0..fill_queue.size - 1 {
-        fill_queue.enqueue(i as u64)?;
+    println!("About to enqueue");
+    for i in 0..fill_queue.len() {
+        println!("Attempting enqueue {i}");
+        fill_queue.enqueue(i as u64);
     }
 
     let mut pollfd = libc::pollfd {
@@ -75,4 +71,88 @@ pub fn exec() -> Result<()> {
         // TODO: pop descriptors from RX
         // TODO: push those descriptors to fill queue to re-use
     }
+}
+
+#[must_use]
+fn new_fill_ring(socket: &mut Socket, size: usize) -> Result<RingBuffer<u64>> {
+    socket
+        .set_opt(libc::SOL_XDP, xdp_sys::XDP_UMEM_FILL_RING, &size)?;
+
+    let offsets = socket.get_opt::<XdpMmapOffsets>()?;
+    let len = offsets.fr.desc + size as u64 * size_of::<u64>() as u64;
+    let fill_ring_map = mmap::builder()
+        .fd(socket.fd)
+        .visibility(Visibility::Shared)
+        .length(len as usize)
+        .offset(xdp_sys::XDP_UMEM_PGOFF_FILL_RING as i64)
+        .behaviour(Behavior::PopulatePageTables)
+        .protection(Protection::Read | Protection::Write)
+        .build()?;
+
+    Ok(unsafe {
+        crate::ring::RingBuffer::new(fill_ring_map.addr, size)
+    })
+}
+
+#[must_use]
+fn new_completion_ring(socket: &mut Socket, size: usize) -> Result<RingBuffer<u64>> {
+    socket
+        .set_opt(libc::SOL_XDP, xdp_sys::XDP_UMEM_COMPLETION_RING, &size)?;
+
+    let offsets = socket.get_opt::<XdpMmapOffsets>()?;
+    let len = offsets.cr.desc + size as u64 * size_of::<u64>() as u64;
+    let comp_ring_map = mmap::builder()
+        .fd(socket.fd)
+        .visibility(Visibility::Shared)
+        .length(len as usize)
+        .offset(xdp_sys::XDP_UMEM_PGOFF_COMPLETION_RING as i64)
+        .behaviour(Behavior::PopulatePageTables)
+        .protection(Protection::Read | Protection::Write)
+        .build()?;
+
+    Ok(unsafe {
+        RingBuffer::new(comp_ring_map.addr, size)
+    })
+}
+
+#[must_use]
+fn new_rx_ring(socket: &mut Socket, size: usize) -> Result<RingBuffer<xdp_sys::xdp_desc>> {
+    socket
+        .set_opt(libc::SOL_XDP, xdp_sys::XDP_RX_RING, &size)?;
+
+    let offsets = socket.get_opt::<XdpMmapOffsets>()?;
+    let len = offsets.rx.desc + (size as u64 * size_of::<xdp_sys::xdp_desc>() as u64);
+    let rx_ring_map = mmap::builder()
+        .fd(socket.fd)
+        .visibility(Visibility::Shared)
+        .length(len as usize)
+        .offset(xdp_sys::XDP_PGOFF_RX_RING as i64)
+        .behaviour(Behavior::PopulatePageTables)
+        .protection(Protection::Read | Protection::Write)
+        .build()?;
+
+    Ok(unsafe {
+        RingBuffer::new(rx_ring_map.addr, size)
+    })
+}
+
+#[must_use]
+fn new_tx_ring(socket: &mut Socket, size: usize) -> Result<RingBuffer<xdp_sys::xdp_desc>> {
+        socket
+            .set_opt(libc::SOL_XDP, xdp_sys::XDP_TX_RING, &size)?;
+
+        let offsets = socket.get_opt::<XdpMmapOffsets>()?;
+        let len = offsets.tx.desc + (size as u64 * size_of::<xdp_sys::xdp_desc>() as u64);
+        let tx_ring_map = mmap::builder()
+            .fd(socket.fd)
+            .visibility(Visibility::Shared)
+            .length(len as usize)
+            .offset(xdp_sys::XDP_PGOFF_TX_RING as i64)
+            .behaviour(Behavior::PopulatePageTables)
+            .protection(Protection::Read | Protection::Write)
+            .build()?;
+
+    Ok(unsafe {
+        RingBuffer::new(tx_ring_map.addr, size)
+    })
 }

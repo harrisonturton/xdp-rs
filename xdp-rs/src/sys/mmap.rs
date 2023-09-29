@@ -17,25 +17,25 @@ use std::ptr::NonNull;
 /// Represents a region of mmapped memory. The lifetime refers to the region of
 /// memory. `munmap` will be called automatically when this value is dropped.
 #[derive(Debug)]
-pub struct MmapRegion {
-    pub addr: NonNull<u8>,
+pub struct MmapRegion<T> {
+    pub addr: NonNull<T>,
     pub len: usize,
 }
 
-impl Drop for MmapRegion {
+impl<T> Drop for MmapRegion<T> {
     fn drop(&mut self) {
         munmap(self).expect("failed to munmap");
     }
 }
 
-pub fn mmap(
-    addr: Option<NonNull<u8>>,
+pub fn mmap<T>(
+    addr: Option<NonNull<T>>,
     len: usize,
     prot: i32,
     flags: i32,
     fd: i32,
     offset: i64,
-) -> Result<MmapRegion> {
+) -> Result<MmapRegion<T>> {
     let ptr = addr.map(NonNull::as_ptr).unwrap_or(std::ptr::null_mut());
     let ret = unsafe { libc::mmap(ptr as *mut _, len, prot, flags, fd, offset) };
 
@@ -50,7 +50,7 @@ pub fn mmap(
 }
 
 #[must_use]
-pub fn munmap(region: &MmapRegion) -> Result<()> {
+pub fn munmap<T>(region: &MmapRegion<T>) -> Result<()> {
     let ret = unsafe { libc::munmap(region.addr.as_ptr() as *mut _, region.len) };
 
     if ret == -1 {
@@ -62,23 +62,31 @@ pub fn munmap(region: &MmapRegion) -> Result<()> {
 
 /// Begin configuring a mmap.
 #[must_use]
-pub fn builder() -> MmapBuilder {
-    MmapBuilder::default()
+pub fn builder<T>() -> MmapBuilder<T> {
+    MmapBuilder {
+        len: 0,
+        prot: 0,
+        flags: 0,
+        fd: None,
+        offset: 0,
+        visibility: None,
+        addr: None
+    }
 }
 
 /// Used to configure and create an instance of mmapped memory.
 #[derive(Default)]
-pub struct MmapBuilder {
+pub struct MmapBuilder<T> {
     len: usize,
     prot: i32,
     flags: i32,
     fd: Option<i32>,
     offset: i64,
     visibility: Option<i32>,
-    addr: Option<NonNull<u8>>,
+    addr: Option<NonNull<T>>,
 }
 
-impl MmapBuilder {
+impl<T> MmapBuilder<T> {
     #[must_use]
     pub fn length(mut self, len: usize) -> Self {
         self.len = len;
@@ -92,7 +100,7 @@ impl MmapBuilder {
     }
 
     #[must_use]
-    pub fn addr(mut self, addr: Option<NonNull<u8>>) -> Self {
+    pub fn addr(mut self, addr: Option<NonNull<T>>) -> Self {
         self.addr = addr;
         self
     }
@@ -122,7 +130,7 @@ impl MmapBuilder {
     }
 
     #[must_use]
-    pub fn build(self) -> Result<MmapRegion> {
+    pub fn build(self) -> Result<MmapRegion<T>> {
         let visibility = self
             .visibility
             .ok_or(Error::Efault("must specify mmap visibility"))?;

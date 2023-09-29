@@ -8,3 +8,4 @@ libc = "0.2.148"
 xdp-sys = { path = "../xdp-sys" }
 thiserror = "1.0.48"
 argh = "0.1.12"
+libbpf-sys = "1.2.1+v1.2.0"

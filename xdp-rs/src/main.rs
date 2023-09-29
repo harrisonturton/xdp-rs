@@ -1,5 +1,6 @@
 // TODO: Remove this when possible
 #![allow(dead_code)]
+#![feature(strict_provenance)]
 
 mod cli;
 mod constants;
