@@ -44,11 +44,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut rx_ring = xdp::ring::new_rx_ring(&socket, DEFAULT_CONS_NUM_DESCS as usize)?;
     let _tx_ring = xdp::ring::new_tx_ring(&socket, DEFAULT_PROD_NUM_DESCS as usize)?;
 
-    for i in 0..10 {
-        println!("Attempting enqueue {i}");
-        fill_ring.enqueue(i as u64);
-    }
-
     println!("setsockopt(ifindex={} queue_id={})", ifindex, args.queue_id);
     socket.bind(&xdp_sys::sockaddr_xdp {
         sxdp_family: libc::PF_XDP as u16,
@@ -67,6 +62,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     println!("map update succeeded");
+
+    for i in 0..10 {
+        println!("Attempting enqueue {i}");
+        fill_ring.enqueue(i as u64);
+    }
 
     loop {
         println!("Polling...");
