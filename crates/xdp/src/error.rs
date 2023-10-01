@@ -4,6 +4,8 @@ pub enum Error {
     Socket(i32),
     #[error("failed to bind: {0}")]
     Bind(i32),
+    #[error("failed to bpf: {0}")]
+    Bpf(i32),
     #[error("failed to if_nametoindex: {0}")]
     IfNameToIndex(i32),
     #[error("failed to mmap: {0}")]

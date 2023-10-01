@@ -1,6 +1,9 @@
 [workspace]
-workspace.resolver = "2"
+resolver = "2"
 members = [
-  "xdp-sys",
-  "xdp-rs"
+  "crates/bpf",
+  "crates/xdp",
+  "crates/xdp-sys",
+  "examples/bpf-loader",
+  "examples/packet-counter",
 ]

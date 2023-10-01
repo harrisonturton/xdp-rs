@@ -35,13 +35,13 @@ impl Socket {
     }
 
     #[must_use]
-    pub fn set_opt<T>(&mut self, level: i32, opt_name: u32, opt_value: &T) -> Result<()> {
+    pub fn set_opt<T>(&self, level: i32, opt_name: u32, opt_value: *const T) -> Result<()> {
         unsafe {
             match libc::setsockopt(
                 self.fd as i32,
                 level,
                 opt_name as i32,
-                opt_value as *const T as *const _,
+                opt_value as _,
                 size_of::<T>() as u32,
             ) {
                 ret if ret < 0 => Err(Error::SetSockOpt(super::errno())),
@@ -52,7 +52,7 @@ impl Socket {
 
     /// The option to get is indicated by the zero-sized generic [GetSockOpt] type.
     #[must_use]
-    pub fn get_opt<O: GetSockOpt>(&mut self) -> Result<O::Value> {
+    pub fn get_opt<O: GetSockOpt>(&self) -> Result<O::Value> {
         O::try_get(self)
     }
 

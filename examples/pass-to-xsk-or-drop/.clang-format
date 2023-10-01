@@ -1,0 +1,10 @@
+---
+BasedOnStyle: Chromium
+NamespaceIndentation: All
+FixNamespaceComments: false
+AlignAfterOpenBracket: AlwaysBreak
+SortIncludes: false # The order of includes is significant
+AlignConsecutiveMacros: true
+BinPackParameters: false
+BinPackArguments: false
+---
