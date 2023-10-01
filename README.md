@@ -1,7 +1,9 @@
 # xdp-rs
 
-Library that makes it easy for applications to use `AF_XDP` sockets. The general
-process looks like:
+Library that makes it easy for applications to use `AF_XDP` sockets. It only
+depends on `libc` and `libbpf` bindings.
+
+## Usage
 
 ```rust
 // Create a BPF object from the BPF ELF object file
@@ -48,6 +50,11 @@ let key = u32::to_le_bytes(0);
 let value = u32::to_le_bytes(socket.fd as u32);
 map.update(&key, &value)?;
 
+// Fill the entire fill_ring to tell the kernel we're ready to begin receiving packets
+for i in 0..DEFAULT_CONS_NUM_DESCS {
+    fill_ring.enqueue(i as u64);
+}
+
 loop {
     let mut pollfd = libc::pollfd {
         fd: socket.fd,
@@ -55,14 +62,21 @@ loop {
         revents: 0,
     };
 
+    // Block until packets are received in the RX ring
     if unsafe { libc::poll(&mut pollfd, 1, -1) } != 1 {
         println!("Poll failed");
         continue;
     }
 
-    // Pop descriptors from rx_ring
-    // Do something with them
-    // Push descriptors to fill_ring when done
+    // Iterate over every packet
+    for i in 0..rx_ring.len() {
+        let desc = rx_ring.dequeue().unwrap();
+        println!("Received packet at offset {} in UMEM", desc.addr);
+
+        // Once the packet has been processed, put the descriptor back in the
+        // fill ring for the kernel to re-use that memory for another packet
+        fill_ring.enqueue(desc.addr);
+    }
 }
 ```
 
