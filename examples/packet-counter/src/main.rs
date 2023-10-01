@@ -41,7 +41,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut fill_ring = xdp::ring::new_fill_ring(&socket, DEFAULT_CONS_NUM_DESCS as usize)?;
     let _comp_ring = xdp::ring::new_completion_ring(&socket, DEFAULT_PROD_NUM_DESCS as usize)?;
-    let _rx_ring = xdp::ring::new_rx_ring(&socket, DEFAULT_CONS_NUM_DESCS as usize)?;
+    let mut rx_ring = xdp::ring::new_rx_ring(&socket, DEFAULT_CONS_NUM_DESCS as usize)?;
     let _tx_ring = xdp::ring::new_tx_ring(&socket, DEFAULT_PROD_NUM_DESCS as usize)?;
 
     for i in 0..10 {
@@ -81,10 +81,12 @@ fn main() -> Result<(), Box<dyn Error>> {
             continue;
         }
 
-        println!("Packets received");
-
-        // TODO: pop descriptors from RX
-        // TODO: push those descriptors to fill queue to re-use
+        println!("Received {} packets", rx_ring.len());
+        for i in 0..rx_ring.len() {
+            let desc = rx_ring.dequeue().unwrap();
+            println!("[{i}]: {desc:?}");
+            fill_ring.enqueue(desc.addr);
+        }
     }
 }
 
