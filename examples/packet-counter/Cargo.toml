@@ -1,0 +1,10 @@
+[package]
+name = "packet-counter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+xdp = { path = "../../crates/xdp" }
+bpf = { path = "../../crates/bpf" }
+argh = "0.1.12"
+libc = "0.2.148"

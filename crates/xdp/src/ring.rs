@@ -34,12 +34,12 @@ impl<T> RingBuffer2<T> {
 
     #[inline]
     pub fn producer(&self) -> *mut u32 {
-        unsafe { self.producer }
+        self.producer
     }
 
     #[inline]
     pub fn consumer(&self) -> *mut u32 {
-        unsafe { self.consumer }
+        self.consumer
     }
 
     #[inline]
