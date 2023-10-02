@@ -12,27 +12,9 @@ rust_binary(
       "//crates/bpf",
       "//crates/xdp",
       "//crates/xdp-sys",
-      ":libelf",
-      ":libbpf",
-      ":libz",
+      "@libelf",
+      "@libbpf",
+      "@libz",
     ] + all_crate_deps(),
-    visibility = ["//visibility:public"],
-)
-
-cc_import(
-    name = "libelf",
-    deps = ["@libelf"],
-    visibility = ["//visibility:public"],
-)
-
-cc_import(
-    name = "libbpf",
-    deps = ["@libbpf"],
-    visibility = ["//visibility:public"],
-)
-
-cc_import(
-    name = "libz",
-    deps = ["@libz"],
     visibility = ["//visibility:public"],
 )

@@ -1,6 +1,8 @@
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
-load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+# --------------------------------------------------
+# Rust
+# --------------------------------------------------
 
 http_archive(
     name = "rules_rust",
@@ -20,6 +22,10 @@ rust_register_toolchains(
         "nightly/2023-09-29",
     ],
 ) 
+
+# --------------------------------------------------
+# Cargo dependencies
+# --------------------------------------------------
 
 load("@rules_rust//crate_universe:repositories.bzl", "crate_universe_dependencies")
 
@@ -49,6 +55,10 @@ crates_repository(
 load("@crate_index//:defs.bzl", "crate_repositories")
 
 crate_repositories()
+
+# --------------------------------------------------
+# System libraries (not hermetic)
+# --------------------------------------------------
 
 new_local_repository(
     name = "libelf",

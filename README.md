@@ -6,14 +6,15 @@ some system libraries to be installed beforehand.
 
 ## Requirements
 
-The following system libraries must exist:
+The main dependency of this library is `libbpf`, which itself depends on
+`libelf` and `libz`. Since it links them dynamically, these files must exist:
 
-* `libbpf`
-* `libzstd`
-* `libz`
-* `libelf`
+* `/usr/lib/x86_64-linux-gnu/libbpf.{a,so}`
+* `/usr/lib/x86_64-linux-gnu/libz.{a,so}`
+* `/usr/lib/x86_64-linux-gnu/libzstd.{a,so}`
+* `/usr/lib/x86_64-linux-gnu/libelf.{a,so}`
 
-These are required because they are dynamically-linked dependencies of `libbpf`.
+Those paths are defined in the `//third_party/*/*.BUILD` rules.
 
 ## Example
 
@@ -99,7 +100,3 @@ loop {
     }
 }
 ```
-
-The `examples/packet-counter` example can be used to load the
-`examples/pass-to-xsk-or-drop` BPF program and receive packets redirected from
-it.
