@@ -3,6 +3,25 @@
 Library that makes it easy for applications to use `AF_XDP` sockets. It only
 depends on `libc` and `libbpf` bindings.
 
+## Requirements
+
+The following system libraries must exist:
+
+* `libbpf`
+* `libzstd`
+* `libz`
+* `libelf`
+
+These are required because they are dynamically-linked dependencies of `libbpf`.
+
+## Example
+
+1. `cd examples/pass-to-xsk-or-drop && make` 
+2. Create a network interface
+3. Run `bazel run //examples/packet-counter ./examples/pass-to-xsk-or-drop/kernel_prog.o <ifname> <queue_id>`
+4. In a seperate tab, `ping` the network interface
+5. You should see each packet being logged in the XDP program, but dropped from the ping
+
 ## Usage
 
 ```rust

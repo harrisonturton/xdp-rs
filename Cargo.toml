@@ -3,7 +3,11 @@ resolver = "2"
 members = [
   "crates/bpf",
   "crates/xdp",
-  "crates/xdp-sys",
   "examples/bpf-loader",
   "examples/packet-counter",
 ]
+
+[workspace.dependencies]
+thiserror = "1.0.48"
+libbpf-sys = "1.2.1"
+libc = "0.2.148"

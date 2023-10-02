@@ -1,0 +1,2 @@
+build --@rules_rust//rust/toolchain/channel=nightly
+build --symlink_prefix=.bazel/
