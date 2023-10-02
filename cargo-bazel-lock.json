@@ -1,5 +1,5 @@
 {
-  "checksum": "6e74d33cbdc08b62223a6a7c8df9957f3fe9adc51f263d2ea0eb3cfd79fb4257",
+  "checksum": "3ca73db5340372d2d6b13c8cab4429264ff03a40c37b6eb84e77fa2688bf08ac",
   "crates": {
     "aho-corasick 1.1.1": {
       "name": "aho-corasick",
@@ -1036,6 +1036,12 @@
         "compile_data_glob": [
           "**"
         ],
+        "crate_features": {
+          "common": [
+            "static"
+          ],
+          "selects": {}
+        },
         "edition": "2018",
         "version": "1.2.1+v1.2.0"
       },
