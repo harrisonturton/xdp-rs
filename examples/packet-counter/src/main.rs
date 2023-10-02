@@ -1,6 +1,6 @@
 use std::error::Error;
 use xdp::constants::{DEFAULT_CONS_NUM_DESCS, DEFAULT_PROD_NUM_DESCS};
-use xdp::umem::{Umem, UmemConfig};
+use xdp::umem::Umem;
 
 /// count packets arriving on a given network interface
 #[derive(argh::FromArgs, Debug)]
@@ -32,12 +32,12 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let socket = xdp::sys::socket::create(libc::AF_XDP, libc::SOCK_RAW, 0)?;
 
-    let _umem = Umem::create(UmemConfig {
-        socket: &socket,
-        frame_count: xdp::constants::NUM_FRAMES as u32,
-        frame_size: xdp::constants::FRAME_SIZE as u32,
-        frame_headroom: xdp::constants::DEFAULT_FRAME_HEADROOM as u32,
-    })?;
+    let _umem = Umem::builder()
+        .socket(&socket)
+        .frame_count(xdp::constants::NUM_FRAMES as u32)
+        .frame_size(xdp::constants::FRAME_SIZE as u32)
+        .frame_headroom(xdp::constants::DEFAULT_FRAME_HEADROOM as u32)
+        .build()?;
 
     let mut fill_ring = xdp::ring::new_fill_ring(&socket, DEFAULT_CONS_NUM_DESCS as usize)?;
     let _comp_ring = xdp::ring::new_completion_ring(&socket, DEFAULT_PROD_NUM_DESCS as usize)?;
