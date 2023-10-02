@@ -6,8 +6,3 @@ members = [
   "examples/bpf-loader",
   "examples/packet-counter",
 ]
-
-[workspace.dependencies]
-thiserror = "1.0.48"
-libbpf-sys = { version = "1.2.1", features = ["static"] }
-libc = "0.2.148"
