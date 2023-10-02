@@ -2,18 +2,21 @@
 
 Experimental library for using `AF_XDP` sockets in Rust.
 
-## Libraries
+## Crates
 
 * `/crates/xdp` main library for using `AF_XDP` sockets
 * `/crates/xdp-sys` generated bindings for the XDP kernel headers
 * `/crates/bpf` safe wrappers over `libbpf-sys` (generated libbpf bindings)
 
-## Requirements
+## Dependencies
 
-This mainly depends on `libbpf`, and notably does *not* depend on `libxdp`. It
-is built with Bazel but inherits some libraries from the system, due to `libbpf`
-depending on `libelf` and `libz`. However, the `libbpf-sys` is configured to
-link these statically, so these files are only required at build time:
+Depends on `libbpf` and notably does *not* depend on `libxdp`.
+
+`libbpf` is statically linked into the binary, but requires `libelf` and `libz`
+to be available at build time. The `WORKSPACE` file imports these as local
+repositories, which isn't very hermetic, but it works.
+
+Specifically, it links against these specific objects:
 
 * `/usr/lib/x86_64-linux-gnu/libbpf.{a,so}`
 * `/usr/lib/x86_64-linux-gnu/libz.{a,so}`
@@ -21,6 +24,12 @@ link these statically, so these files are only required at build time:
 * `/usr/lib/x86_64-linux-gnu/libelf.{a,so}`
 
 Those paths are defined in the `//third_party/*/*.BUILD` rules.
+
+On Debian/Ubuntu, they can be installed with:
+
+```
+apt-get install build-essential pkgconf zlib1g-dev libelf-dev libbpf-dev
+```
 
 ## Example
 
