@@ -1,13 +1,19 @@
 # xdp-rs
 
-Library that makes it easy for applications to use `AF_XDP` sockets. It only
-depends on `libc` and `libbpf` bindings. It is built with Bazel but requires
-some system libraries to be installed beforehand. 
+Experimental library for using `AF_XDP` sockets in Rust.
+
+## Libraries
+
+* `/crates/xdp` main library for using `AF_XDP` sockets
+* `/crates/xdp-sys` generated bindings for the XDP kernel headers
+* `/crates/bpf` safe wrappers over `libbpf-sys` (generated libbpf bindings)
 
 ## Requirements
 
-The main dependency of this library is `libbpf`, which itself depends on
-`libelf` and `libz`. Since it links them dynamically, these files must exist:
+This mainly depends on `libbpf`, and notably does *not* depend on `libxdp`. It
+is built with Bazel but inherits some libraries from the system, due to `libbpf`
+depending on `libelf` and `libz`. However, the `libbpf-sys` is configured to
+link these statically, so these files are only required at build time:
 
 * `/usr/lib/x86_64-linux-gnu/libbpf.{a,so}`
 * `/usr/lib/x86_64-linux-gnu/libz.{a,so}`
