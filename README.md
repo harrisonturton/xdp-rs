@@ -1,7 +1,8 @@
 # xdp-rs
 
 Library that makes it easy for applications to use `AF_XDP` sockets. It only
-depends on `libc` and `libbpf` bindings.
+depends on `libc` and `libbpf` bindings. It is built with Bazel but requires
+some system libraries to be installed beforehand. 
 
 ## Requirements
 
