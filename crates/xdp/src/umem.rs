@@ -1,26 +1,26 @@
 use std::mem::size_of;
 
 use crate::error::Error;
-use crate::ring::{RingBuffer, FillRing, CompRing};
+use crate::ring::{CompRing, FillRing, RingBuffer};
 use crate::sys::mmap::{Behavior, Protection, Visibility};
 use crate::sys::ptr_offset;
-use crate::sys::socket::{XdpMmapOffsets, Socket};
+use crate::sys::socket::{Socket, XdpMmapOffsets};
 use crate::sys::{self, mmap::Mmap};
 use crate::Result;
 
 #[derive(Debug)]
-pub struct Umem<'a> {
+pub struct Umem {
     pub frame_buffer: Mmap,
     pub frame_count: u32,
     pub frame_size: u32,
     pub frame_headroom: u32,
-    pub fill: FillRing<'a>,
-    pub comp: CompRing<'a>,
+    pub fill: FillRing,
+    pub comp: CompRing,
 }
 
-impl<'a> Umem<'a> {
+impl Umem {
     #[must_use]
-    pub fn builder() -> UmemBuilder<'a> {
+    pub fn builder<'a>() -> UmemBuilder<'a> {
         UmemBuilder::default()
     }
 
@@ -29,7 +29,7 @@ impl<'a> Umem<'a> {
         frame_count: u32,
         frame_size: u32,
         frame_headroom: u32,
-    ) -> Result<Umem<'a>> {
+    ) -> Result<Umem> {
         if frame_count == 0 {
             return Err(Error::InvalidArgument("frame buffer cannot be zero length"));
         }
@@ -72,13 +72,17 @@ impl<'a> Umem<'a> {
     }
 
     #[must_use]
-    pub fn rings(&mut self) -> (&'a mut FillRing, &'a mut CompRing) {
+    pub fn rings(&mut self) -> (&mut FillRing, &mut CompRing) {
         (&mut self.fill, &mut self.comp)
     }
 }
 
 #[must_use]
-pub fn register_fill_ring<'a>(socket: &Socket, frame_count: usize, offsets: &xdp_sys::xdp_ring_offset) -> Result<FillRing<'a>> {
+pub fn register_fill_ring<'a>(
+    socket: &Socket,
+    frame_count: usize,
+    offsets: &xdp_sys::xdp_ring_offset,
+) -> Result<FillRing> {
     socket.set_opt(libc::SOL_XDP, xdp_sys::XDP_UMEM_FILL_RING, &frame_count)?;
 
     let len = (offsets.desc + frame_count as u64) * size_of::<u64>() as u64;
@@ -100,8 +104,16 @@ pub fn register_fill_ring<'a>(socket: &Socket, frame_count: usize, offsets: &xdp
 }
 
 #[must_use]
-fn register_completion_ring<'a>(socket: &Socket, frame_count: usize, offsets: &xdp_sys::xdp_ring_offset) -> Result<CompRing<'a>> {
-    socket.set_opt(libc::SOL_XDP, xdp_sys::XDP_UMEM_COMPLETION_RING, &frame_count)?;
+fn register_completion_ring<'a>(
+    socket: &Socket,
+    frame_count: usize,
+    offsets: &xdp_sys::xdp_ring_offset,
+) -> Result<CompRing> {
+    socket.set_opt(
+        libc::SOL_XDP,
+        xdp_sys::XDP_UMEM_COMPLETION_RING,
+        &frame_count,
+    )?;
 
     let len = (offsets.desc + frame_count as u64) * size_of::<u64>() as u64;
     let mmap = Mmap::builder()
@@ -113,7 +125,7 @@ fn register_completion_ring<'a>(socket: &Socket, frame_count: usize, offsets: &x
         .behaviour(Behavior::PopulatePageTables)
         .protection(Protection::Read | Protection::Write)
         .build()?;
-    
+
     let producer = ptr_offset(mmap.addr, offsets.producer as usize);
     let consumer = ptr_offset(mmap.addr, offsets.consumer as usize);
     let descs = ptr_offset(mmap.addr, offsets.desc as usize);
@@ -154,7 +166,7 @@ impl<'a> UmemBuilder<'a> {
         self
     }
 
-    pub fn build(self) -> Result<Umem<'a>> {
+    pub fn build(self) -> Result<Umem> {
         let sock = self
             .sock
             .ok_or_else(|| Error::InvalidArgument("socket must be specified"))?;

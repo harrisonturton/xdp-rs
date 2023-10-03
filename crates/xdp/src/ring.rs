@@ -1,11 +1,8 @@
-use crate::socket::UmemRef;
-use std::marker::PhantomData;
+pub type FillRing = RingBuffer<u64>;
+pub type CompRing = RingBuffer<u64>;
 
-pub type FillRing<'a> = RingBuffer<'a, u64>;
-pub type CompRing<'a> = RingBuffer<'a, u64>;
-
-pub type RxRing<'a> = RingBuffer<'a, xdp_sys::xdp_desc>;
-pub type TxRing<'a> = RingBuffer<'a, xdp_sys::xdp_desc>;
+pub type RxRing = RingBuffer<xdp_sys::xdp_desc>;
+pub type TxRing = RingBuffer<xdp_sys::xdp_desc>;
 
 /// Safe wrapper for interacting with the fill, completion, RX and TX rings
 /// attached to the UMEM and AF_XDP sockets.
@@ -15,29 +12,22 @@ pub type TxRing<'a> = RingBuffer<'a, xdp_sys::xdp_desc>;
 /// instance, because once that Mmap is dropped (and assumed unmapped) the
 /// pointers will become invalid.
 #[derive(Debug, PartialEq, Eq)]
-pub struct RingBuffer<'a, T> {
+pub struct RingBuffer<T> {
     cap: usize,
     // Producer and consumer indices increment unbounded, and wrap around normally.
     producer: *mut u32,
     consumer: *mut u32,
     descs: *mut T,
-    map: PhantomData<UmemRef<'a>>,
 }
 
-impl<'a, T> RingBuffer<'a, T> {
-    pub fn new(
-        cap: usize,
-        producer: *mut u32,
-        consumer: *mut u32,
-        descs: *mut T,
-    ) -> RingBuffer<'a, T> {
+impl<T> RingBuffer<T> {
+    pub fn new(cap: usize, producer: *mut u32, consumer: *mut u32, descs: *mut T) -> RingBuffer<T> {
         assert!(cap % 2 == 0, "capacity must be a power of two");
         RingBuffer {
             cap,
             producer,
             consumer,
             descs,
-            map: PhantomData,
         }
     }
 
@@ -191,7 +181,7 @@ mod tests {
     }
 
     // Do not use outside of a test context
-    fn new_test_buffer<'a, T>(cap: usize) -> RingBuffer<'a, T> {
+    fn new_test_buffer<'a, T>(cap: usize) -> RingBuffer<T> {
         assert!(cap % 2 == 0, "capacity must be a power of two");
         unsafe {
             let layout = Layout::array::<T>(cap).expect("invalid memory layout");
@@ -203,7 +193,6 @@ mod tests {
                 consumer: Box::into_raw(consumer),
                 producer: Box::into_raw(producer),
                 descs,
-                map: PhantomData,
             }
         }
     }

@@ -1,4 +1,3 @@
-use std::mem::size_of;
 use crate::error::Error;
 use crate::ring::{RingBuffer, RxRing, TxRing};
 use crate::sys::mmap::{Behavior, Mmap, Protection, Visibility};
@@ -6,12 +5,13 @@ use crate::sys::ptr_offset;
 use crate::sys::socket::XdpMmapOffsets;
 use crate::Result;
 use crate::{sys::socket::Socket, umem::Umem};
+use std::mem::size_of;
 
 #[derive(Debug)]
-pub struct XdpSocket<'a> {
+pub struct XdpSocket {
     sock: Socket,
-    rx: RxRing<'a>,
-    tx: TxRing<'a>,
+    rx: RxRing,
+    tx: TxRing,
 }
 
 /// The UMEM is the root of the AF_XDP lifetime tree. When the UMEM is dropped,
@@ -21,43 +21,26 @@ pub struct XdpSocket<'a> {
 /// the UMEM directly, and through it's owning socket.
 #[derive(Debug)]
 pub enum UmemRef<'a> {
-    Owned(&'a Umem<'a>),
-    Shared(&'a XdpSocket<'a>),
+    Owned(&'a Umem),
+    Shared(&'a XdpSocket),
 }
 
-impl<'a> XdpSocket<'a> {
+impl XdpSocket {
     #[must_use]
-    pub fn builder() -> XdpSocketBuilder<'a> {
+    pub fn builder<'a>() -> XdpSocketBuilder<'a> {
         XdpSocketBuilder::default()
     }
-    
-    #[must_use]
-    pub fn create(sock: Socket, umem: UmemRef<'a>, rx_size: usize, tx_size: usize) -> Result<XdpSocket> {
-        // Only need to register the UMEM if it is owned by this socket. If the
-        // UMEM is shared, it is attached on bind().
-        if let UmemRef::Owned(ref umem) = umem {
-            sock.set_opt::<xdp_sys::xdp_umem_reg>(
-                libc::SOL_XDP,
-                xdp_sys::XDP_UMEM_REG,
-                &xdp_sys::xdp_umem_reg {
-                    addr: umem.frame_buffer.addr.as_ptr().addr() as u64,
-                    len: umem.frame_buffer.len as u64,
-                    chunk_size: umem.frame_size,
-                    headroom: umem.frame_headroom,
-                    flags: 0,
-                },
-            )?;
-        }
 
+    #[must_use]
+    pub fn create<'a>(sock: Socket, rx_size: usize, tx_size: usize) -> Result<XdpSocket> {
         let offsets = sock.get_opt::<XdpMmapOffsets>()?;
         let rx = register_rx_ring(&sock, &offsets, rx_size)?;
         let tx = register_tx_ring(&sock, &offsets, tx_size)?;
-
         Ok(XdpSocket { sock, rx, tx })
     }
 
     #[must_use]
-    pub fn rings(&mut self) -> (&mut RxRing<'a>, &mut TxRing<'a>) {
+    pub fn rings(&mut self) -> (&mut RxRing, &mut TxRing) {
         (&mut self.rx, &mut self.tx)
     }
 
@@ -72,6 +55,7 @@ impl<'a> XdpSocket<'a> {
         })
     }
 
+    #[inline]
     #[must_use]
     pub fn fd(&self) -> u32 {
         self.sock.fd as u32
@@ -82,7 +66,7 @@ fn register_rx_ring<'a>(
     sock: &Socket,
     offsets: &xdp_sys::xdp_mmap_offsets,
     size: usize,
-) -> Result<RingBuffer<'a, xdp_sys::xdp_desc>> {
+) -> Result<RxRing> {
     sock.set_opt(libc::SOL_XDP, xdp_sys::XDP_RX_RING, &size)?;
 
     let len = (offsets.rx.desc + size as u64) * size_of::<u64>() as u64;
@@ -103,11 +87,11 @@ fn register_rx_ring<'a>(
     Ok(RingBuffer::new(size, producer, consumer, descs))
 }
 
-fn register_tx_ring<'a>(
+fn register_tx_ring(
     sock: &Socket,
     offsets: &xdp_sys::xdp_mmap_offsets,
     size: usize,
-) -> Result<RingBuffer<'a, xdp_sys::xdp_desc>> {
+) -> Result<TxRing> {
     sock.set_opt(libc::SOL_XDP, xdp_sys::XDP_TX_RING, &size)?;
 
     let len = (offsets.tx.desc + size as u64) * size_of::<u64>() as u64;
@@ -144,7 +128,7 @@ impl<'a> XdpSocketBuilder<'a> {
     }
 
     #[must_use]
-    pub fn owned_umem(mut self, umem: &'a Umem<'a>) -> Self {
+    pub fn owned_umem(mut self, umem: &'a Umem) -> Self {
         self.umem = Some(UmemRef::Owned(umem));
         self
     }
@@ -168,19 +152,19 @@ impl<'a> XdpSocketBuilder<'a> {
     }
 
     #[must_use]
-    pub fn build(self) -> Result<XdpSocket<'a>> {
+    pub fn build(self) -> Result<XdpSocket> {
         let sock = self
             .sock
             .ok_or_else(|| Error::InvalidArgument("socket must be specified"))?;
-        let umem = self
-            .umem
-            .ok_or_else(|| Error::InvalidArgument("umem must be specified"))?;
+        // let umem = self
+        //     .umem
+        //     .ok_or_else(|| Error::InvalidArgument("umem must be specified"))?;
         let rx_size = self
             .rx_size
             .ok_or_else(|| Error::InvalidArgument("rx_size must be specified"))?;
         let tx_size = self
             .tx_size
             .ok_or_else(|| Error::InvalidArgument("tx_size must be specified"))?;
-        XdpSocket::create(sock, umem, rx_size, tx_size)
+        XdpSocket::create(sock, rx_size, tx_size)
     }
 }

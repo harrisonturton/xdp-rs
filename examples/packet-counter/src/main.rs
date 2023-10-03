@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let ifindex = if_nametoindex(args.ifname.clone())?;
 
     // Setup XDP
-    
+
     let sock = Socket::create(libc::AF_XDP, libc::SOCK_RAW, 0)?;
 
     let mut umem = Umem::builder()
@@ -38,6 +38,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut xsk = XdpSocket::builder()
         .socket(sock)
+        .owned_umem(&umem)
         .rx_size(xdp::constants::DEFAULT_PROD_NUM_DESCS as usize)
         .tx_size(xdp::constants::DEFAULT_CONS_NUM_DESCS as usize)
         .build()?;
@@ -59,7 +60,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let obj = load_bpf_program(&args.filepath)?;
     let prog = obj.find_program(&args.program)?;
     prog.attach_xdp(ifindex)?;
-
 
     let map = obj.find_map("xsks_map")?;
     let key = u32::to_le_bytes(0);
@@ -89,9 +89,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn load_bpf_program(
-    filepath: &str,
-) -> Result<bpf::Object, Box<dyn Error>> {
+fn load_bpf_program(filepath: &str) -> Result<bpf::Object, Box<dyn Error>> {
     let obj_buf = std::fs::read(filepath)?;
     let obj = bpf::Object::create(&obj_buf)?;
     obj.load()?;
