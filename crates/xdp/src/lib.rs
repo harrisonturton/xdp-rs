@@ -5,6 +5,7 @@
 pub mod constants;
 pub mod error;
 pub mod ring;
+pub mod socket;
 pub mod sys;
 pub mod umem;
 

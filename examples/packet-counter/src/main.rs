@@ -1,5 +1,7 @@
 use std::error::Error;
-use xdp::constants::{DEFAULT_CONS_NUM_DESCS, DEFAULT_PROD_NUM_DESCS};
+use xdp::socket::XdpSocket;
+use xdp::sys::if_nametoindex;
+use xdp::sys::socket::Socket;
 use xdp::umem::Umem;
 
 /// count packets arriving on a given network interface
@@ -21,86 +23,77 @@ struct Args {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = argh::from_env::<Args>();
+    let ifindex = if_nametoindex(args.ifname.clone())?;
 
-    let ifindex = xdp::sys::if_nametoindex(args.ifname.clone())?;
-    println!(
-        "Binding to interface name: {} index: {ifindex} queue: {}",
-        args.ifname, args.queue_id
-    );
+    // Setup XDP
+    
+    let sock = Socket::create(libc::AF_XDP, libc::SOCK_RAW, 0)?;
 
-    let (obj, _prog) = load_and_attach_bpf_program(&args.filepath, &args.program, ifindex)?;
-
-    let socket = xdp::sys::socket::create(libc::AF_XDP, libc::SOCK_RAW, 0)?;
-
-    let _umem = Umem::builder()
-        .socket(&socket)
+    let mut umem = Umem::builder()
+        .socket(&sock)
         .frame_count(xdp::constants::NUM_FRAMES as u32)
         .frame_size(xdp::constants::FRAME_SIZE as u32)
         .frame_headroom(xdp::constants::DEFAULT_FRAME_HEADROOM as u32)
         .build()?;
 
-    let mut fill_ring = xdp::ring::new_fill_ring(&socket, DEFAULT_CONS_NUM_DESCS as usize)?;
-    let _comp_ring = xdp::ring::new_completion_ring(&socket, DEFAULT_PROD_NUM_DESCS as usize)?;
-    let mut rx_ring = xdp::ring::new_rx_ring(&socket, DEFAULT_CONS_NUM_DESCS as usize)?;
-    let _tx_ring = xdp::ring::new_tx_ring(&socket, DEFAULT_PROD_NUM_DESCS as usize)?;
+    let mut xsk = XdpSocket::builder()
+        .socket(sock)
+        .rx_size(xdp::constants::DEFAULT_PROD_NUM_DESCS as usize)
+        .tx_size(xdp::constants::DEFAULT_CONS_NUM_DESCS as usize)
+        .build()?;
 
-    println!("setsockopt(ifindex={} queue_id={})", ifindex, args.queue_id);
-    socket.bind(&xdp_sys::sockaddr_xdp {
-        sxdp_family: libc::PF_XDP as u16,
-        sxdp_flags: 0,
-        sxdp_ifindex: ifindex,
-        sxdp_queue_id: args.queue_id,
-        sxdp_shared_umem_fd: 0,
-    })?;
+    xsk.bind(ifindex, args.queue_id)?;
 
-    println!("Updating xsks_map");
+    // Prepare XDP
+
+    let fd = xsk.fd();
+    let (fr, _) = umem.rings();
+    let (rx, _) = xsk.rings();
+
+    for i in 0..fr.capacity() {
+        fr.enqueue(i as u64);
+    }
+
+    // Start receiving packets
+
+    let obj = load_bpf_program(&args.filepath)?;
+    let prog = obj.find_program(&args.program)?;
+    prog.attach_xdp(ifindex)?;
+
+
     let map = obj.find_map("xsks_map")?;
     let key = u32::to_le_bytes(0);
-    let value = u32::to_le_bytes(socket.fd as u32);
-    if let Err(bpf::Error::Errno(errno)) = map.update(&key, &value) {
-        println!("map updated failed: {}", xdp::sys::strerror(errno));
-        return Ok(());
-    }
-    println!("map update succeeded");
-
-    for i in 0..10 {
-        println!("Attempting enqueue {i}");
-        fill_ring.enqueue(i as u64);
-    }
+    let value = u32::to_le_bytes(fd);
+    map.update(&key, &value)?;
 
     loop {
         println!("Polling...");
         let mut pollfd = libc::pollfd {
-            fd: socket.fd,
+            fd: fd as i32,
             events: libc::POLLIN,
             revents: 0,
         };
-        let ret = unsafe { libc::poll(&mut pollfd, 1, -1) };
-        if ret <= 0 || ret > 1 {
-            println!("Nothing returned from poll");
+
+        if unsafe { libc::poll(&mut pollfd, 1, -1) } != 1 {
+            println!("Skipping poll");
             continue;
         }
 
-        println!("Received {} packets", rx_ring.len());
-        for i in 0..rx_ring.len() {
-            let desc = rx_ring.dequeue().unwrap();
-            println!("[{i}]: {desc:?}");
-            fill_ring.enqueue(desc.addr);
+        println!("Received {} packets", rx.len());
+
+        for i in 0..rx.len() {
+            let desc = rx.dequeue().unwrap();
+            println!("  [{i}]: {desc:?}");
+            fr.enqueue(desc.addr);
         }
     }
 }
 
-fn load_and_attach_bpf_program(
+fn load_bpf_program(
     filepath: &str,
-    program: &str,
-    ifindex: u32,
-) -> Result<(bpf::Object, bpf::Program), Box<dyn Error>> {
+) -> Result<bpf::Object, Box<dyn Error>> {
     let obj_buf = std::fs::read(filepath)?;
     let obj = bpf::Object::create(&obj_buf)?;
     obj.load()?;
-
-    let prog = obj.find_program(program)?;
-    prog.attach_xdp(ifindex)?;
-
-    Ok((obj, prog))
+    Ok(obj)
 }

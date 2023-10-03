@@ -1,153 +1,11 @@
-use crate::sys::{
-    mmap::{Behavior, Mmap, Protection, Visibility},
-    socket::{Socket, XdpMmapOffsets},
-};
-use crate::Result;
-use std::{marker::PhantomData, mem::size_of};
+use crate::socket::UmemRef;
+use std::marker::PhantomData;
 
-#[must_use]
-pub fn new_fill_ring(socket: &Socket, size: usize) -> Result<RingBuffer<u64>> {
-    socket.set_opt(libc::SOL_XDP, xdp_sys::XDP_UMEM_FILL_RING, &size)?;
-    let offsets = socket.get_opt::<XdpMmapOffsets>()?;
+pub type FillRing<'a> = RingBuffer<'a, u64>;
+pub type CompRing<'a> = RingBuffer<'a, u64>;
 
-    let len = (offsets.fr.desc + size as u64) * size_of::<u64>() as u64;
-    let mmap = Mmap::builder()
-        .fd(socket.fd)
-        .addr(None)
-        .visibility(Visibility::Shared)
-        .length(len as usize)
-        .offset(xdp_sys::XDP_UMEM_PGOFF_FILL_RING as i64)
-        .behaviour(Behavior::PopulatePageTables)
-        .protection(Protection::Read | Protection::Write)
-        .build()?;
-
-    let producer = {
-        let addr = usize::from(mmap.addr.addr());
-        let addr = addr + offsets.fr.producer as usize;
-        addr as *mut u32
-    };
-
-    let consumer = {
-        let addr = usize::from(mmap.addr.addr());
-        let addr = addr + offsets.fr.consumer as usize;
-        addr as *mut u32
-    };
-
-    let descs = unsafe {
-        let addr = mmap.addr.as_ptr().offset(offsets.fr.desc as isize);
-        addr as *mut u64
-    };
-
-    Ok(RingBuffer::new(size, producer, consumer, descs))
-}
-
-#[must_use]
-pub fn new_completion_ring(socket: &Socket, size: usize) -> Result<RingBuffer<u64>> {
-    socket.set_opt(libc::SOL_XDP, xdp_sys::XDP_UMEM_COMPLETION_RING, &size)?;
-    let offsets = socket.get_opt::<XdpMmapOffsets>()?;
-
-    let len = (offsets.cr.desc + size as u64) * size_of::<u64>() as u64;
-    let mmap = Mmap::builder()
-        .fd(socket.fd)
-        .addr(None)
-        .visibility(Visibility::Shared)
-        .length(len as usize)
-        .offset(xdp_sys::XDP_UMEM_PGOFF_COMPLETION_RING as i64)
-        .behaviour(Behavior::PopulatePageTables)
-        .protection(Protection::Read | Protection::Write)
-        .build()?;
-
-    let producer = {
-        let addr = usize::from(mmap.addr.addr());
-        let addr = addr + offsets.cr.producer as usize;
-        addr as *mut u32
-    };
-
-    let consumer = {
-        let addr = usize::from(mmap.addr.addr());
-        let addr = addr + offsets.cr.consumer as usize;
-        addr as *mut u32
-    };
-
-    let descs = unsafe {
-        let addr = mmap.addr.as_ptr().offset(offsets.cr.desc as isize);
-        addr as *mut u64
-    };
-
-    Ok(RingBuffer::new(size, producer, consumer, descs))
-}
-
-#[must_use]
-pub fn new_rx_ring(socket: &Socket, size: usize) -> Result<RingBuffer<xdp_sys::xdp_desc>> {
-    socket.set_opt(libc::SOL_XDP, xdp_sys::XDP_RX_RING, &size)?;
-    let offsets = socket.get_opt::<XdpMmapOffsets>()?;
-
-    let len = (offsets.rx.desc + size as u64) * size_of::<u64>() as u64;
-    let mmap = Mmap::builder()
-        .fd(socket.fd)
-        .addr(None)
-        .visibility(Visibility::Shared)
-        .length(len as usize)
-        .offset(xdp_sys::XDP_PGOFF_RX_RING as i64)
-        .behaviour(Behavior::PopulatePageTables)
-        .protection(Protection::Read | Protection::Write)
-        .build()?;
-
-    let producer = {
-        let addr = usize::from(mmap.addr.addr());
-        let addr = addr + offsets.rx.producer as usize;
-        addr as *mut u32
-    };
-
-    let consumer = {
-        let addr = usize::from(mmap.addr.addr());
-        let addr = addr + offsets.rx.consumer as usize;
-        addr as *mut u32
-    };
-
-    let descs = unsafe {
-        let addr = mmap.addr.as_ptr().offset(offsets.rx.desc as isize);
-        addr as *mut xdp_sys::xdp_desc
-    };
-
-    Ok(RingBuffer::new(size, producer, consumer, descs))
-}
-
-#[must_use]
-pub fn new_tx_ring(socket: &Socket, size: usize) -> Result<RingBuffer<xdp_sys::xdp_desc>> {
-    socket.set_opt(libc::SOL_XDP, xdp_sys::XDP_TX_RING, &size)?;
-    let offsets = socket.get_opt::<XdpMmapOffsets>()?;
-
-    let len = (offsets.tx.desc + size as u64) * size_of::<u64>() as u64;
-    let mmap = Mmap::builder()
-        .fd(socket.fd)
-        .addr(None)
-        .visibility(Visibility::Shared)
-        .length(len as usize)
-        .offset(xdp_sys::XDP_PGOFF_TX_RING as i64)
-        .behaviour(Behavior::PopulatePageTables)
-        .protection(Protection::Read | Protection::Write)
-        .build()?;
-
-    let producer = {
-        let addr = usize::from(mmap.addr.addr());
-        let addr = addr + offsets.tx.producer as usize;
-        addr as *mut u32
-    };
-
-    let consumer = {
-        let addr = usize::from(mmap.addr.addr());
-        let addr = addr + offsets.tx.consumer as usize;
-        addr as *mut u32
-    };
-
-    let descs = unsafe {
-        let addr = mmap.addr.as_ptr().offset(offsets.tx.desc as isize);
-        addr as *mut xdp_sys::xdp_desc
-    };
-
-    Ok(RingBuffer::new(size, producer, consumer, descs))
-}
+pub type RxRing<'a> = RingBuffer<'a, xdp_sys::xdp_desc>;
+pub type TxRing<'a> = RingBuffer<'a, xdp_sys::xdp_desc>;
 
 /// Safe wrapper for interacting with the fill, completion, RX and TX rings
 /// attached to the UMEM and AF_XDP sockets.
@@ -163,7 +21,7 @@ pub struct RingBuffer<'a, T> {
     producer: *mut u32,
     consumer: *mut u32,
     descs: *mut T,
-    map: PhantomData<&'a Mmap>,
+    map: PhantomData<UmemRef<'a>>,
 }
 
 impl<'a, T> RingBuffer<'a, T> {

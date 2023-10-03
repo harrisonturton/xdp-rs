@@ -2,7 +2,7 @@
 //! Unsafe blocks should be confined to this namespace, and care should be taken
 //! to make sure that all the exposed interfaces are memory safe.
 
-use std::ffi::CString;
+use std::{ffi::CString, ptr::NonNull};
 
 use crate::{error::Error, Result};
 pub mod mmap;
@@ -33,6 +33,11 @@ pub fn strerror(code: i32) -> String {
     let msg_ptr = unsafe { libc::strerror(code) };
     let msg_cstr = unsafe { std::ffi::CStr::from_ptr(msg_ptr) };
     msg_cstr.to_string_lossy().to_string()
+}
+
+#[must_use]
+pub fn ptr_offset<T, S>(addr: NonNull<T>, offset: usize) -> *mut S {
+    (usize::from(addr.addr()) + offset) as *mut S
 }
 
 #[must_use]
