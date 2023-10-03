@@ -23,7 +23,7 @@ struct {
  * These queues are visible in sysfs (/sys/class/net/<ifname>/queues)
  */
 SEC("xdp")
-int xdp_try_pass_to_xsk(struct xdp_md* ctx) {
+int pass_to_socket(struct xdp_md* ctx) {
   int index = ctx->rx_queue_index;
 
   if (bpf_map_lookup_elem(&xsks_map, &index)) {
