@@ -16,7 +16,7 @@ Depends on `libbpf` and notably does *not* depend on `libxdp`.
 to be available at build time. The `WORKSPACE` file imports these as local
 repositories, which isn't very hermetic, but it works.
 
-Specifically, it links against these specific objects:
+Specifically, it links against these objects:
 
 * `/usr/lib/x86_64-linux-gnu/libbpf.{a,so}`
 * `/usr/lib/x86_64-linux-gnu/libz.{a,so}`
@@ -42,76 +42,64 @@ apt-get install build-essential pkgconf zlib1g-dev libelf-dev libbpf-dev
 ## Usage
 
 ```rust
-// Create a BPF object from the BPF ELF object file
-let obj_buf = std::fs::read(filepath)?;
-let obj = bpf::Object::create(&obj_buf)?;
-obj.load()?;
+let sock = Socket::create(libc::AF_XDP, libc::SOCK_RAW, 0)?;
 
-// Find and attach the BPF program to the XDP hook
-let prog = obj.find_program(program)?;
-prog.attach_xdp(ifindex)?;
+let mut umem = Umem::builder()
+    .socket(&sock)
+    .frame_count(xdp::constants::NUM_FRAMES as u32)
+    .frame_size(xdp::constants::FRAME_SIZE as u32)
+    .frame_headroom(xdp::constants::DEFAULT_FRAME_HEADROOM as u32)
+    .build()?;
 
-// Create the AF_XDP socket
-let socket = Socket::create(libc::AF_XDP, libc::SOCK_RAW, 0)?;
+let mut xsk = XdpSocket::builder()
+    .socket(sock)
+    .owned_umem(&umem)
+    .rx_size(xdp::constants::DEFAULT_PROD_NUM_DESCS as usize)
+    .tx_size(xdp::constants::DEFAULT_CONS_NUM_DESCS as usize)
+    .build()?;
 
-// Create the shared memory region (uses mmap)
-let umem = Umem::create(UmemConfig {
-    socket: &socket,
-    frame_count: NUM_FRAMES as u32,
-    frame_size: FRAME_SIZE as u32,
-    frame_headroom: DEFAULT_FRAME_HEADROOM as u32,
-})?;
+xsk.bind(ifindex, args.queue_id)?;
 
-// Create the rings associated with the UMEM 
-let fill_ring = xdp::ring::new_fill_ring(&socket, DEFAULT_CONS_NUM_DESCS as usize)?;
-let comp_ring = xdp::ring::new_completion_ring(&socket, DEFAULT_PROD_NUM_DESCS as usize)?;
+// Prepare XDP
 
-// Create the rings associated with the socket
-let rx_ring = xdp::ring::new_rx_ring(&socket, DEFAULT_CONS_NUM_DESCS as usize)?;
-let tx_ring = xdp::ring::new_tx_ring(&socket, DEFAULT_PROD_NUM_DESCS as usize)?;
+let fd = xsk.fd();
+let (fr, _) = umem.rings();
+let (rx, _) = xsk.rings();
 
-// Bind the AF_XDP socket to a specific network interface and device queue
-socket.bind(&xdp_sys::sockaddr_xdp {
-    sxdp_family: libc::PF_XDP as u16,
-    sxdp_flags: 0,
-    sxdp_ifindex: IFINDEX,
-    sxdp_queue_id: QUEUE_ID,
-    sxdp_shared_umem_fd: 0,
-})?;
-
-// Add the socket's file descriptor to the BPF_MAP_TYPE_XSKMAP map used by the
-// BPF program to redirect packets to a given AF_XDP socket
-let map = obj.find_map("xsks_map")?;
-let key = u32::to_le_bytes(0);
-let value = u32::to_le_bytes(socket.fd as u32);
-map.update(&key, &value)?;
-
-// Fill the entire fill_ring to tell the kernel we're ready to begin receiving packets
-for i in 0..DEFAULT_CONS_NUM_DESCS {
-    fill_ring.enqueue(i as u64);
+for i in 0..fr.capacity() {
+    fr.enqueue(i as u64);
 }
 
+// Start receiving packets
+
+let obj = load_bpf_program(&args.filepath)?;
+let prog = obj.find_program(&args.program)?;
+prog.attach_xdp(ifindex)?;
+
+let map = obj.find_map("xsks_map")?;
+let key = u32::to_le_bytes(0);
+let value = u32::to_le_bytes(fd);
+map.update(&key, &value)?;
+
 loop {
+    println!("Polling...");
     let mut pollfd = libc::pollfd {
-        fd: socket.fd,
+        fd: fd as i32,
         events: libc::POLLIN,
         revents: 0,
     };
 
-    // Block until packets are received in the RX ring
     if unsafe { libc::poll(&mut pollfd, 1, -1) } != 1 {
-        println!("Poll failed");
+        println!("Skipping poll");
         continue;
     }
 
-    // Iterate over every packet
-    for i in 0..rx_ring.len() {
-        let desc = rx_ring.dequeue().unwrap();
-        println!("Received packet at offset {} in UMEM", desc.addr);
+    println!("Received {} packets", rx.len());
 
-        // Once the packet has been processed, put the descriptor back in the
-        // fill ring for the kernel to re-use that memory for another packet
-        fill_ring.enqueue(desc.addr);
+    for i in 0..rx.len() {
+        let desc = rx.dequeue().unwrap();
+        println!("  [{i}]: {desc:?}");
+        fr.enqueue(desc.addr);
     }
 }
 ```
