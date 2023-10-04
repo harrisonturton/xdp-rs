@@ -24,4 +24,6 @@ pub enum Error {
     InvalidArgument(&'static str),
     #[error("EFAULT: {0}")]
     Efault(&'static str),
+    #[error("{0}")]
+    NotFound(&'static str),
 }

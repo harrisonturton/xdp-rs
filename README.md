@@ -2,6 +2,12 @@
 
 Experimental library for using `AF_XDP` sockets in Rust.
 
+It additionally provides safe wrappers for a subset of `libbpf` and `libc`.
+
+## Usage
+
+See the [ipv6 packet logger example](./examples/ipv6-logger).
+
 ## Crates
 
 * `/crates/xdp` main library for using `AF_XDP` sockets
@@ -28,7 +34,7 @@ Those paths are defined in the `//third_party/*/*.BUILD` rules.
 On Debian/Ubuntu, they can be installed with:
 
 ```
-apt-get install build-essential pkgconf zlib1g-dev libelf-dev libbpf-dev
+apt-get install build-essential pkgconf zlib1g-dev libzstd-dev libelf-dev libbpf-dev clang
 ```
 
 ## Example
@@ -38,7 +44,3 @@ apt-get install build-essential pkgconf zlib1g-dev libelf-dev libbpf-dev
 3. Run `bazel run //examples/packet-counter ./examples/pass-to-xsk-or-drop/kernel_prog.o <ifname> <queue_id>`
 4. In a seperate tab, `ping` the network interface
 5. You should see each packet being logged in the XDP program, but dropped from the ping
-
-## Usage
-
-See the [ipv6 packet logger example](./examples/ipv6-logger).

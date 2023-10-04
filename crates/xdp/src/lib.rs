@@ -1,7 +1,9 @@
 // TODO: Remove this when possible
 #![allow(dead_code)]
 #![feature(strict_provenance)]
+#![feature(iterator_try_collect)]
 
+pub mod channel;
 pub mod constants;
 pub mod error;
 pub mod ring;

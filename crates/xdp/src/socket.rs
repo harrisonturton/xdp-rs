@@ -10,16 +10,13 @@ use std::mem::size_of;
 #[derive(Debug)]
 pub struct XdpSocket {
     sock: Socket,
+    umem: UmemRef,
     rx: RxRing,
     tx: TxRing,
-    umem: UmemRef,
 }
 
-#[derive(Debug)]
-pub enum UmemRef {
-    Owned(xdp_sys::xdp_umem_reg, Socket),
-    Shared(Socket),
-}
+unsafe impl Send for XdpSocket {}
+unsafe impl Sync for XdpSocket {}
 
 impl XdpSocket {
     #[must_use]
@@ -29,19 +26,16 @@ impl XdpSocket {
 
     #[must_use]
     pub fn create<'a>(umem: UmemRef, rx_size: usize, tx_size: usize) -> Result<XdpSocket> {
-        if let UmemRef::Owned(ref reg, sock) = umem {
-            sock.set_opt::<xdp_sys::xdp_umem_reg>(libc::SOL_XDP, xdp_sys::XDP_UMEM_REG, reg)?;
-        }
-
-        let sock = match umem {
-            UmemRef::Owned(_, sock) => sock,
-            UmemRef::Shared(sock) => sock,
-        };
+        let sock = match &umem {
+            UmemRef::Owned(umem) => Ok(umem.sock),
+            UmemRef::Shared(_) => Socket::create(libc::AF_XDP, libc::SOCK_RAW, 0),
+        }?;
 
         let offsets = sock.get_opt::<XdpMmapOffsets>()?;
         let rx = register_rx_ring(&sock, &offsets, rx_size)?;
         let tx = register_tx_ring(&sock, &offsets, tx_size)?;
-        Ok(XdpSocket { umem, sock, rx, tx })
+
+        Ok(XdpSocket { sock, umem, rx, tx })
     }
 
     #[must_use]
@@ -50,23 +44,48 @@ impl XdpSocket {
     }
 
     #[must_use]
+    pub fn is_owner(&self) -> bool {
+        matches!(self.umem, UmemRef::Owned(_))
+    }
+
+    #[must_use]
     pub fn bind(&self, ifindex: u32, queue_id: u32) -> Result<()> {
-        self.sock.bind(&xdp_sys::sockaddr_xdp {
+        let sockaddr = xdp_sys::sockaddr_xdp {
             sxdp_family: libc::PF_XDP as u16,
-            sxdp_flags: 0,
+            sxdp_flags: match self.umem {
+                UmemRef::Owned(_) => 0,
+                UmemRef::Shared(_) => xdp_sys::XDP_SHARED_UMEM as u16,
+            },
             sxdp_ifindex: ifindex,
             sxdp_queue_id: queue_id,
             sxdp_shared_umem_fd: match self.umem {
-                UmemRef::Owned(_, _) => 0,
+                UmemRef::Owned(_) => 0,
                 UmemRef::Shared(sock) => sock.fd as u32,
             },
-        })
+        };
+        println!("{sockaddr:?}");
+        self.sock.bind(&sockaddr)
     }
 
     #[inline]
     #[must_use]
     pub fn fd(&self) -> u32 {
         self.sock.fd as u32
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn socket(&self) -> Socket {
+        self.sock
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn umem(&mut self) -> Option<&mut Umem> {
+        match &mut self.umem {
+            UmemRef::Owned(umem) => Some(umem),
+            UmemRef::Shared(_) => None,
+        }
     }
 }
 
@@ -120,6 +139,12 @@ fn register_tx_ring(
     Ok(RingBuffer::new(size, producer, consumer, descs))
 }
 
+#[derive(Debug)]
+pub enum UmemRef {
+    Owned(Umem),
+    Shared(Socket),
+}
+
 #[derive(Debug, Default)]
 pub struct XdpSocketBuilder {
     umem: Option<UmemRef>,
@@ -150,21 +175,14 @@ impl XdpSocketBuilder {
     }
 
     #[must_use]
-    pub fn owned_umem(mut self, umem: &Umem) -> Self {
-        let reg = xdp_sys::xdp_umem_reg {
-            addr: umem.frame_buffer.addr.as_ptr().addr() as u64,
-            len: umem.frame_buffer.len as u64,
-            chunk_size: umem.frame_size,
-            headroom: umem.frame_headroom,
-            flags: 0,
-        };
-        self.umem = Some(UmemRef::Owned(reg, umem.sock));
+    pub fn owned_umem(mut self, umem: Umem) -> Self {
+        self.umem = Some(UmemRef::Owned(umem));
         self
     }
 
     #[must_use]
-    pub fn shared_umem(mut self, sock: &XdpSocket) -> Self {
-        self.umem = Some(UmemRef::Shared(sock.sock));
+    pub fn shared_umem(mut self, xsk: &XdpSocket) -> Self {
+        self.umem = Some(UmemRef::Shared(xsk.socket()));
         self
     }
 
