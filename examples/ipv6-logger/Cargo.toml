@@ -9,5 +9,4 @@ bpf = { path = "../../crates/bpf" }
 xdp-sys = { path = "../../crates/xdp-sys" }
 argh = "0.1.12"
 libc = "0.2.148"
-packet = "0.1.4"
 byteorder = "1.4.3"
