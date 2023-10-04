@@ -43,7 +43,7 @@ crates_repository(
         "//:crates/xdp/Cargo.toml",
         "//:crates/xdp-sys/Cargo.toml",
         "//:examples/bpf-loader/Cargo.toml",
-        "//:examples/packet-counter/Cargo.toml",
+        "//:examples/ipv6-logger/Cargo.toml",
     ],
     annotations = {
         "libbpf-sys": [crate.annotation(

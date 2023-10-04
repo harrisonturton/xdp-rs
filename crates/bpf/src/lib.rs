@@ -125,8 +125,6 @@ impl Map {
     }
 }
 
-// LIBBPF_API int bpf_link__update_map (struct bpf_link *link, const struct bpf_map *map)
-
 #[must_use]
 pub(crate) fn errno() -> i32 {
     unsafe { *libc::__errno_location() }

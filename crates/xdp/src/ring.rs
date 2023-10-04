@@ -11,7 +11,7 @@ pub type TxRing = RingBuffer<xdp_sys::xdp_desc>;
 /// xdp_ring` kernel struct. This is why the lifetime 'a is tied to an Mmap
 /// instance, because once that Mmap is dropped (and assumed unmapped) the
 /// pointers will become invalid.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct RingBuffer<T> {
     cap: usize,
     // Producer and consumer indices increment unbounded, and wrap around normally.

@@ -10,6 +10,7 @@ rust_library(
     aliases = aliases(),
     deps = [
         "//crates/xdp-sys",
+        "//crates/bpf",
     ] + all_crate_deps(),
     visibility = ["//visibility:public"],
 )

@@ -4,5 +4,5 @@ members = [
   "crates/bpf",
   "crates/xdp",
   "examples/bpf-loader",
-  "examples/packet-counter",
+  "examples/ipv6-logger",
 ]

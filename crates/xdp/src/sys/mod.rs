@@ -53,3 +53,12 @@ pub fn if_nametoindex(name: String) -> Result<u32> {
         Ok(ret)
     }
 }
+
+pub fn poll(fd: u32, events: i16) -> i32 {
+    let mut pollfd = libc::pollfd {
+        fd: fd as i32,
+        events,
+        revents: 0,
+    };
+    unsafe { libc::poll(&mut pollfd, 1, -1) }
+}

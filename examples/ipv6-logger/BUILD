@@ -2,7 +2,7 @@ load("@crate_index//:defs.bzl", "aliases", "all_crate_deps")
 load("@rules_rust//rust:defs.bzl", "rust_binary")
 
 rust_binary(
-    name = "packet-counter",
+    name = "ipv6-logger",
     edition = "2021",
     srcs = glob([
         "src/**/*.rs",

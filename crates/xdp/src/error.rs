@@ -1,5 +1,9 @@
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error("{0}")]
+    IoError(std::io::Error),
+    #[error("{0}")]
+    BpfError(bpf::Error),
     #[error("failed to create socket: {0}")]
     Socket(i32),
     #[error("failed to bind: {0}")]
