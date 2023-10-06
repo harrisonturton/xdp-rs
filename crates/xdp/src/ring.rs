@@ -1,8 +1,66 @@
+use crate::sys::{
+    mmap::{Behavior, Mmap, Protection, Visibility},
+    ptr_offset,
+    socket::Socket,
+};
+use crate::Result;
+use std::mem::size_of;
+
 pub type FillRing = RingBuffer<u64>;
 pub type CompRing = RingBuffer<u64>;
 
 pub type RxRing = RingBuffer<xdp_sys::xdp_desc>;
 pub type TxRing = RingBuffer<xdp_sys::xdp_desc>;
+
+pub(crate) fn new_rx_ring<'a>(
+    sock: &Socket,
+    offsets: &xdp_sys::xdp_mmap_offsets,
+    size: usize,
+) -> Result<RxRing> {
+    sock.set_opt(libc::SOL_XDP, xdp_sys::XDP_RX_RING, &size)?;
+
+    let len = (offsets.rx.desc + size as u64) * size_of::<u64>() as u64;
+    let mmap = Mmap::builder()
+        .fd(sock.fd)
+        .addr(None)
+        .visibility(Visibility::Shared)
+        .length(len as usize)
+        .offset(xdp_sys::XDP_PGOFF_RX_RING as i64)
+        .behaviour(Behavior::PopulatePageTables)
+        .protection(Protection::Read | Protection::Write)
+        .build()?;
+
+    let producer = ptr_offset(mmap.addr, offsets.rx.producer as usize);
+    let consumer = ptr_offset(mmap.addr, offsets.rx.consumer as usize);
+    let descs = ptr_offset(mmap.addr, offsets.rx.desc as usize);
+
+    Ok(RingBuffer::new(size, producer, consumer, descs))
+}
+
+pub(crate) fn new_tx_ring(
+    sock: &Socket,
+    offsets: &xdp_sys::xdp_mmap_offsets,
+    size: usize,
+) -> Result<TxRing> {
+    sock.set_opt(libc::SOL_XDP, xdp_sys::XDP_TX_RING, &size)?;
+
+    let len = (offsets.tx.desc + size as u64) * size_of::<u64>() as u64;
+    let mmap = Mmap::builder()
+        .fd(sock.fd)
+        .addr(None)
+        .visibility(Visibility::Shared)
+        .length(len as usize)
+        .offset(xdp_sys::XDP_PGOFF_TX_RING as i64)
+        .behaviour(Behavior::PopulatePageTables)
+        .protection(Protection::Read | Protection::Write)
+        .build()?;
+
+    let producer = ptr_offset(mmap.addr, offsets.tx.producer as usize);
+    let consumer = ptr_offset(mmap.addr, offsets.tx.consumer as usize);
+    let descs = ptr_offset(mmap.addr, offsets.tx.desc as usize);
+
+    Ok(RingBuffer::new(size, producer, consumer, descs))
+}
 
 /// Safe wrapper for interacting with the fill, completion, RX and TX rings
 /// attached to the UMEM and AF_XDP sockets.

@@ -1,6 +1,5 @@
 use crate::error::Error;
 use crate::ring::{CompRing, FillRing, RingBuffer};
-use crate::socket::XdpSocket;
 use crate::sys::mmap::{Behavior, Protection, Visibility};
 use crate::sys::ptr_offset;
 use crate::sys::socket::{Socket, XdpMmapOffsets};

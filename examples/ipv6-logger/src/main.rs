@@ -1,7 +1,7 @@
 #![feature(ip_bits)]
 
 use std::error::Error;
-use xdp::channel::{SockConfig, UmemConfig, XdpChannel};
+use xdp::channel::{DeviceConfig, SockConfig, UmemConfig, XdpChannel};
 use xdp::constants::{
     DEFAULT_CONS_NUM_DESCS, DEFAULT_FRAME_HEADROOM, DEFAULT_PROD_NUM_DESCS, FRAME_SIZE, NUM_FRAMES,
 };
@@ -13,21 +13,12 @@ struct Args {
     /// BPF program object file
     #[argh(positional)]
     filepath: String,
-    /// name of the program
-    #[argh(positional)]
-    program: String,
     /// network interface name
     #[argh(positional)]
     ifname: String,
     /// network device queue ID
     #[argh(positional)]
     queue_id: u32,
-}
-
-#[derive(Debug)]
-enum Msg {
-    Fill(u64),
-    Complete(u64),
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -41,47 +32,86 @@ fn main() -> Result<(), Box<dyn Error>> {
         .build();
 
     let socks = SockConfig::builder()
-        .socks(2)
         .rx_size(DEFAULT_CONS_NUM_DESCS)
         .tx_size(DEFAULT_PROD_NUM_DESCS)
+        .build();
+
+    let netdev = DeviceConfig::builder()
+        .queues([args.queue_id])
+        .ifname(&args.ifname)
         .build()?;
 
-    let mut chan = XdpChannel::builder().umem(umem).sockets(socks).build()?;
-
-    let obj_buf = std::fs::read(&args.filepath)?;
-    let obj = bpf::Object::create(&obj_buf)?;
-    obj.load()?;
-    let prog = obj.find_program(&args.program)?;
-    prog.attach_xdp(ifindex)?;
+    let mut chan = XdpChannel::builder()
+        .umem(umem)
+        .sockets(socks)
+        .netdev(netdev)
+        .build().expect("Could not create chan");
 
     let (owner, _) = chan.socks();
+    owner.bind().expect("Could not bind");
 
-    let key = u32::to_le_bytes(0);
-    let value = u32::to_le_bytes(owner.fd());
-    obj.find_map("xsks_map")?.update(&key, &value)?;
+    let (mut fr, mut _cr) = owner.umem().rings();
+    let (mut rx, mut _tx) = owner.rings();
 
-    let (mut fr, _) = owner.umem().unwrap().rings();
-    let (_, _) = owner.rings();
+    let mut program = Program::from_file(&args.filepath, "pass_to_socket").expect("Could not create bpf prog");
+    program.attach(ifindex).expect("could not attach");
+    program.update_map("xsks_map", 0, owner.fd()).expect("could not update map");
 
     for i in 0..fr.capacity() {
         fr.enqueue(i as u64);
     }
 
-    let (mut rx, _tx) = owner.rings();
-    owner.bind(ifindex, args.queue_id).expect("Could not bind sock");
+    println!("Polling");
 
     loop {
-        println!("Polling");
-
         if xdp::sys::poll(owner.fd(), libc::POLLIN) != 1 {
             println!("Skipping poll");
             continue;
         }
+
+        println!("Got {} packets", rx.len());
 
         for _ in 0..rx.len() {
             let desc = rx.dequeue().unwrap();
             println!("Got packet: len={}", desc.len);
             fr.enqueue(desc.addr);
         }
+    }
+}
+
+pub struct Program {
+    obj: bpf::Object,
+    prog: bpf::Program,
+}
+
+impl Program {
+    pub fn from_file(file: &str, name: &str) -> Result<Self, Box<dyn Error>> {
+        let buf = std::fs::read(file)?;
+        let obj = bpf::Object::create(&buf)?;
+        obj.load()?;
+        let prog = obj.find_program(name)?;
+        Ok(Program { obj, prog })
+    }
+
+    pub fn attach(&mut self, ifindex: u32) -> Result<(), Box<dyn Error>> {
+        self.prog.attach_xdp(ifindex)?;
+        Ok(())
+    }
+
+
+    pub fn update_map<V: IntoMapValue>(&mut self, name: &str, key: V, value: V) -> Result<(), Box<dyn Error>> {
+        let map = self.obj.find_map(name)?;
+        map.update(&key.into_value(), &value.into_value())?;
+        Ok(())
+    }
+}
+
+pub trait IntoMapValue {
+    fn into_value(self) -> Vec<u8>;
+}
+
+impl IntoMapValue for u32 {
+    fn into_value(self) -> Vec<u8> {
+        u32::to_le_bytes(self).to_vec()
     }
 }
