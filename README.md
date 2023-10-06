@@ -34,7 +34,7 @@ Those paths are defined in the `//third_party/*/*.BUILD` rules.
 On Debian/Ubuntu, they can be installed with:
 
 ```
-apt-get install build-essential pkgconf zlib1g-dev libelf-dev libbpf-dev
+apt-get install build-essential pkgconf zlib1g-dev libzstd-dev libelf-dev libbpf-dev clang
 ```
 
 ## Example

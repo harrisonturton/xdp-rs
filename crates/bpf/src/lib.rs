@@ -86,6 +86,7 @@ impl Program {
 
 #[derive(Clone, Debug)]
 pub struct LinkedProgram {
+    #[allow(dead_code)]
     link: *mut libbpf_sys::bpf_link,
 }
 

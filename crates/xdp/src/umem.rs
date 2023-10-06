@@ -9,13 +9,13 @@ use std::mem::size_of;
 
 #[derive(Debug)]
 pub struct Umem {
-    pub sock: Socket,
-    pub frame_buffer: Mmap,
-    pub frame_count: u32,
-    pub frame_size: u32,
-    pub frame_headroom: u32,
-    pub fill: FillRing,
-    pub comp: CompRing,
+    pub(crate) sock: Socket,
+    frame_buffer: Mmap,
+    frame_count: u32,
+    frame_size: u32,
+    frame_headroom: u32,
+    fill: FillRing,
+    comp: CompRing,
 }
 
 impl Umem {
@@ -41,6 +41,18 @@ impl Umem {
         if !sys::is_page_aligned(frame_buffer.addr.as_ptr()) {
             return Err(Error::Efault("buffer is not page aligned"));
         }
+
+        sock.set_opt::<xdp_sys::xdp_umem_reg>(
+            libc::SOL_XDP,
+            xdp_sys::XDP_UMEM_REG,
+            &xdp_sys::xdp_umem_reg {
+                addr: frame_buffer.addr.as_ptr().addr() as u64,
+                len: frame_buffer.len as u64,
+                chunk_size: frame_size,
+                headroom: frame_headroom,
+                flags: 0,
+            },
+        )?;
 
         let offsets = sock.get_opt::<XdpMmapOffsets>()?;
         let fill = register_fill_ring(&sock, frame_count as usize, &offsets.fr)?;

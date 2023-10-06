@@ -1,3 +1,5 @@
+export ARCH=x86
+
 CC = clang
 CFLAGS = -Wall -Wextra -O3 -g
 BPF_TARGET = -g -target bpf
